@@ -31,6 +31,8 @@
  *          Kevin Lim
  */
 
+#include "cpu/simple_thread.hh"
+
 #include <string>
 
 #include "arch/isa_traits.hh"
@@ -45,7 +47,6 @@
 #include "cpu/base.hh"
 #include "cpu/profile.hh"
 #include "cpu/quiesce_event.hh"
-#include "cpu/simple_thread.hh"
 #include "cpu/thread_context.hh"
 #include "mem/fs_translating_port_proxy.hh"
 #include "mem/se_translating_port_proxy.hh"
@@ -61,18 +62,19 @@ using namespace std;
 
 // constructor
 SimpleThread::SimpleThread(BaseCPU *_cpu, int _thread_num, System *_sys,
-                           Process *_process, TheISA::TLB *_itb,
-                           TheISA::TLB *_dtb, TheISA::ISA *_isa)
+                           Process *_process, BaseTLB *_itb,
+                           BaseTLB *_dtb, TheISA::ISA *_isa)
     : ThreadState(_cpu, _thread_num, _process), isa(_isa),
       predicate(false), system(_sys),
       itb(_itb), dtb(_dtb)
 {
     clearArchRegs();
     tc = new ProxyThreadContext<SimpleThread>(this);
+    quiesceEvent = new EndQuiesceEvent(tc);
 }
 
 SimpleThread::SimpleThread(BaseCPU *_cpu, int _thread_num, System *_sys,
-                           TheISA::TLB *_itb, TheISA::TLB *_dtb,
+                           BaseTLB *_itb, BaseTLB *_dtb,
                            TheISA::ISA *_isa, bool use_kernel_stats)
     : ThreadState(_cpu, _thread_num, NULL), isa(_isa), system(_sys), itb(_itb),
       dtb(_dtb)
@@ -98,7 +100,7 @@ SimpleThread::SimpleThread(BaseCPU *_cpu, int _thread_num, System *_sys,
     profilePC = 3;
 
     if (use_kernel_stats)
-        kernelStats = new TheISA::Kernel::Statistics(system);
+        kernelStats = new TheISA::Kernel::Statistics();
 }
 
 SimpleThread::~SimpleThread()

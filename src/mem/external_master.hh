@@ -36,6 +36,7 @@
  *
  * Authors: Andrew Bardsley
  *          Curtis Dunham
+ *          Christian Menard
  */
 
 /**
@@ -56,8 +57,8 @@
  * The external port must provide a gem5 MasterPort interface.
  */
 
-#ifndef __MEM_EXTERNAL_MASTER__
-#define __MEM_EXTERNAL_MASTER__
+#ifndef __MEM_EXTERNAL_MASTER_HH__
+#define __MEM_EXTERNAL_MASTER_HH__
 
 #include "mem/mem_object.hh"
 #include "params/ExternalMaster.hh"
@@ -129,7 +130,9 @@ class ExternalMaster : public MemObject
         Handler *handler);
 
     void init();
+
+    const MasterID masterId;
 };
 
 
-#endif // __MEM_EXTERNAL_MASTER__
+#endif //__MEM_EXTERNAL_MASTER_HH__

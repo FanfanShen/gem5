@@ -233,6 +233,7 @@ machine(MachineType:L2Cache, "Token protocol")
   void unset_cache_entry();
   void set_tbe(TBE b);
   void unset_tbe();
+  MachineID mapAddressToMachine(Addr addr, MachineType mtype);
 
   Entry getCacheEntry(Addr address), return_by_pointer="yes" {
     return static_cast(Entry, "pointer", L2cache[address]);
@@ -591,6 +592,67 @@ machine(MachineType:L2Cache, "Token protocol")
     }
   }
 
+  // Response Network
+  in_port(responseNetwork_in, ResponseMsg, responseToL2Cache) {
+    if (responseNetwork_in.isReady(clockEdge())) {
+      peek(responseNetwork_in, ResponseMsg) {
+        assert(in_msg.Destination.isElement(machineID));
+        if (in_msg.Type == CoherenceResponseType:ACK) {
+          if (in_msg.SenderMachine == MachineType:L2Cache) {
+            trigger(Event:ExtAck, in_msg.addr,
+                    getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
+          }
+          else {
+            trigger(Event:IntAck, in_msg.addr,
+                    getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
+          }
+        } else if (in_msg.Type == CoherenceResponseType:DATA) {
+          trigger(Event:Data, in_msg.addr,
+                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
+        } else if (in_msg.Type == CoherenceResponseType:DATA_EXCLUSIVE) {
+          trigger(Event:Data_Exclusive, in_msg.addr,
+                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
+        } else if (in_msg.Type == CoherenceResponseType:UNBLOCK) {
+          DPRINTF(ProtocolTrace, "Received Unblock from L1 addr: %x\n", in_msg.addr);
+          trigger(Event:Unblock, in_msg.addr,
+                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
+        } else if (in_msg.Type == CoherenceResponseType:UNBLOCK_EXCLUSIVE) {
+          trigger(Event:Exclusive_Unblock, in_msg.addr,
+                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
+        } else if (in_msg.Type == CoherenceResponseType:WRITEBACK_DIRTY_DATA) {
+          Entry cache_entry := getCacheEntry(in_msg.addr);
+          if (is_invalid(cache_entry) &&
+                   L2cache.cacheAvail(in_msg.addr) == false) {
+            trigger(Event:L2_Replacement, L2cache.cacheProbe(in_msg.addr),
+                    getCacheEntry(L2cache.cacheProbe(in_msg.addr)),
+                    TBEs[L2cache.cacheProbe(in_msg.addr)]);
+          }
+          else {
+            trigger(Event:L1_WBDIRTYDATA, in_msg.addr,
+                    cache_entry, TBEs[in_msg.addr]);
+          }
+        } else if (in_msg.Type == CoherenceResponseType:WRITEBACK_CLEAN_DATA) {
+          Entry cache_entry := getCacheEntry(in_msg.addr);
+          if (is_invalid(cache_entry) &&
+                   L2cache.cacheAvail(in_msg.addr) == false) {
+            trigger(Event:L2_Replacement, L2cache.cacheProbe(in_msg.addr),
+                    getCacheEntry(L2cache.cacheProbe(in_msg.addr)),
+                    TBEs[L2cache.cacheProbe(in_msg.addr)]);
+          }
+          else {
+            trigger(Event:L1_WBCLEANDATA, in_msg.addr,
+                    cache_entry, TBEs[in_msg.addr]);
+          }
+        } else if (in_msg.Type == CoherenceResponseType:DMA_ACK) {
+          trigger(Event:DmaAck, in_msg.addr,
+                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
+        } else {
+          error("Unexpected message");
+        }
+      }
+    }
+  }
+
 
   // Request Network
   in_port(requestNetwork_in, RequestMsg, GlobalRequestToL2Cache) {
@@ -660,67 +722,6 @@ machine(MachineType:L2Cache, "Token protocol")
   }
 
 
-  // Response Network
-  in_port(responseNetwork_in, ResponseMsg, responseToL2Cache) {
-    if (responseNetwork_in.isReady(clockEdge())) {
-      peek(responseNetwork_in, ResponseMsg) {
-        assert(in_msg.Destination.isElement(machineID));
-        if (in_msg.Type == CoherenceResponseType:ACK) {
-          if (in_msg.SenderMachine == MachineType:L2Cache) {
-            trigger(Event:ExtAck, in_msg.addr,
-                    getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
-          }
-          else {
-            trigger(Event:IntAck, in_msg.addr,
-                    getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
-          }
-        } else if (in_msg.Type == CoherenceResponseType:DATA) {
-          trigger(Event:Data, in_msg.addr,
-                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
-        } else if (in_msg.Type == CoherenceResponseType:DATA_EXCLUSIVE) {
-          trigger(Event:Data_Exclusive, in_msg.addr,
-                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
-        } else if (in_msg.Type == CoherenceResponseType:UNBLOCK) {
-          trigger(Event:Unblock, in_msg.addr,
-                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
-        } else if (in_msg.Type == CoherenceResponseType:UNBLOCK_EXCLUSIVE) {
-          trigger(Event:Exclusive_Unblock, in_msg.addr,
-                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
-        } else if (in_msg.Type == CoherenceResponseType:WRITEBACK_DIRTY_DATA) {
-          Entry cache_entry := getCacheEntry(in_msg.addr);
-          if (is_invalid(cache_entry) &&
-                   L2cache.cacheAvail(in_msg.addr) == false) {
-            trigger(Event:L2_Replacement, L2cache.cacheProbe(in_msg.addr),
-                    getCacheEntry(L2cache.cacheProbe(in_msg.addr)),
-                    TBEs[L2cache.cacheProbe(in_msg.addr)]);
-          }
-          else {
-            trigger(Event:L1_WBDIRTYDATA, in_msg.addr,
-                    cache_entry, TBEs[in_msg.addr]);
-          }
-        } else if (in_msg.Type == CoherenceResponseType:WRITEBACK_CLEAN_DATA) {
-          Entry cache_entry := getCacheEntry(in_msg.addr);
-          if (is_invalid(cache_entry) &&
-                   L2cache.cacheAvail(in_msg.addr) == false) {
-            trigger(Event:L2_Replacement, L2cache.cacheProbe(in_msg.addr),
-                    getCacheEntry(L2cache.cacheProbe(in_msg.addr)),
-                    TBEs[L2cache.cacheProbe(in_msg.addr)]);
-          }
-          else {
-            trigger(Event:L1_WBCLEANDATA, in_msg.addr,
-                    cache_entry, TBEs[in_msg.addr]);
-          }
-        } else if (in_msg.Type == CoherenceResponseType:DMA_ACK) {
-          trigger(Event:DmaAck, in_msg.addr,
-                  getCacheEntry(in_msg.addr), TBEs[in_msg.addr]);
-        } else {
-          error("Unexpected message");
-        }
-      }
-    }
-  }
-
-
   // ACTIONS
 
   action(a_issueGETS, "a", desc="issue local request globally") {
@@ -730,7 +731,7 @@ machine(MachineType:L2Cache, "Token protocol")
         out_msg.Type := CoherenceRequestType:GETS;
         out_msg.RequestorMachine := MachineType:L2Cache;
         out_msg.Requestor := machineID;
-        out_msg.Destination.add(map_Address_to_Directory(address));
+        out_msg.Destination.add(mapAddressToMachine(address, MachineType:Directory));
         out_msg.MessageSize := MessageSizeType:Request_Control;
       }
     }
@@ -743,7 +744,7 @@ machine(MachineType:L2Cache, "Token protocol")
         out_msg.Type := CoherenceRequestType:GETX;
         out_msg.RequestorMachine := MachineType:L2Cache;
         out_msg.Requestor := machineID;
-        out_msg.Destination.add(map_Address_to_Directory(address));
+        out_msg.Destination.add(mapAddressToMachine(address, MachineType:Directory));
         out_msg.MessageSize := MessageSizeType:Request_Control;
       }
     }
@@ -755,7 +756,7 @@ machine(MachineType:L2Cache, "Token protocol")
       out_msg.Type := CoherenceRequestType:PUTX;
       out_msg.RequestorMachine := MachineType:L2Cache;
       out_msg.Requestor := machineID;
-      out_msg.Destination.add(map_Address_to_Directory(address));
+      out_msg.Destination.add(mapAddressToMachine(address, MachineType:Directory));
       out_msg.MessageSize := MessageSizeType:Writeback_Control;
     }
   }
@@ -766,7 +767,7 @@ machine(MachineType:L2Cache, "Token protocol")
       out_msg.Type := CoherenceRequestType:PUTO;
       out_msg.Requestor := machineID;
       out_msg.RequestorMachine := MachineType:L2Cache;
-      out_msg.Destination.add(map_Address_to_Directory(address));
+      out_msg.Destination.add(mapAddressToMachine(address, MachineType:Directory));
       out_msg.MessageSize := MessageSizeType:Writeback_Control;
     }
   }
@@ -778,7 +779,7 @@ machine(MachineType:L2Cache, "Token protocol")
       out_msg.Type := CoherenceRequestType:PUTO_SHARERS;
       out_msg.Requestor := machineID;
       out_msg.RequestorMachine := MachineType:L2Cache;
-      out_msg.Destination.add(map_Address_to_Directory(address));
+      out_msg.Destination.add(mapAddressToMachine(address, MachineType:Directory));
       out_msg.MessageSize := MessageSizeType:Writeback_Control;
     }
   }
@@ -1147,7 +1148,7 @@ machine(MachineType:L2Cache, "Token protocol")
     enqueue(responseNetwork_out, ResponseMsg, response_latency) {
       out_msg.addr := address;
       out_msg.Type := CoherenceResponseType:UNBLOCK;
-      out_msg.Destination.add(map_Address_to_Directory(address));
+      out_msg.Destination.add(mapAddressToMachine(address, MachineType:Directory));
       out_msg.Sender := machineID;
       out_msg.SenderMachine := MachineType:L2Cache;
       out_msg.MessageSize := MessageSizeType:Unblock_Control;
@@ -1159,7 +1160,7 @@ machine(MachineType:L2Cache, "Token protocol")
     enqueue(responseNetwork_out, ResponseMsg, response_latency) {
       out_msg.addr := address;
       out_msg.Type := CoherenceResponseType:UNBLOCK_EXCLUSIVE;
-      out_msg.Destination.add(map_Address_to_Directory(address));
+      out_msg.Destination.add(mapAddressToMachine(address, MachineType:Directory));
       out_msg.Sender := machineID;
       out_msg.SenderMachine := MachineType:L2Cache;
       out_msg.MessageSize := MessageSizeType:Unblock_Control;
@@ -1432,7 +1433,7 @@ machine(MachineType:L2Cache, "Token protocol")
       out_msg.addr := address;
       out_msg.Sender := machineID;
       out_msg.SenderMachine := MachineType:L2Cache;
-      out_msg.Destination.add(map_Address_to_Directory(address));
+      out_msg.Destination.add(mapAddressToMachine(address, MachineType:Directory));
       out_msg.Dirty := tbe.Dirty;
       if (tbe.Dirty) {
         out_msg.Type := CoherenceResponseType:WRITEBACK_DIRTY_DATA;
@@ -1561,7 +1562,7 @@ machine(MachineType:L2Cache, "Token protocol")
     enqueue(responseNetwork_out, ResponseMsg, response_latency) {
       out_msg.addr := address;
       out_msg.Type := CoherenceResponseType:DMA_ACK;
-      out_msg.Destination.add(map_Address_to_Directory(address));
+      out_msg.Destination.add(mapAddressToMachine(address, MachineType:Directory));
       out_msg.Sender := machineID;
       out_msg.SenderMachine := MachineType:L2Cache;
       out_msg.MessageSize := MessageSizeType:Unblock_Control;

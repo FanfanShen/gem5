@@ -28,11 +28,12 @@
  * Authors: Gabe Black
  */
 
+#include "dev/x86/i82094aa.hh"
+
 #include "arch/x86/interrupts.hh"
 #include "arch/x86/intmessage.hh"
 #include "cpu/base.hh"
 #include "debug/I82094AA.hh"
-#include "dev/x86/i82094aa.hh"
 #include "dev/x86/i8259.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
@@ -91,7 +92,6 @@ Tick
 X86ISA::I82094AA::recvResponse(PacketPtr pkt)
 {
     // Packet instantiated calling sendMessage() in signalInterrupt()
-    delete pkt->req;
     delete pkt;
     return 0;
 }
@@ -103,10 +103,10 @@ X86ISA::I82094AA::read(PacketPtr pkt)
     Addr offset = pkt->getAddr() - pioAddr;
     switch(offset) {
       case 0:
-        pkt->set<uint32_t>(regSel);
+        pkt->setLE<uint32_t>(regSel);
         break;
       case 16:
-        pkt->set<uint32_t>(readReg(regSel));
+        pkt->setLE<uint32_t>(readReg(regSel));
         break;
       default:
         panic("Illegal read from I/O APIC.\n");
@@ -122,10 +122,10 @@ X86ISA::I82094AA::write(PacketPtr pkt)
     Addr offset = pkt->getAddr() - pioAddr;
     switch(offset) {
       case 0:
-        regSel = pkt->get<uint32_t>();
+        regSel = pkt->getLE<uint32_t>();
         break;
       case 16:
-        writeReg(regSel, pkt->get<uint32_t>());
+        writeReg(regSel, pkt->getLE<uint32_t>());
         break;
       default:
         panic("Illegal write to I/O APIC.\n");

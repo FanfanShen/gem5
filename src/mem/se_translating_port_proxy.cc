@@ -42,13 +42,14 @@
  *          Andreas Hansson
  */
 
+#include "mem/se_translating_port_proxy.hh"
+
 #include <string>
 
 #include "arch/isa_traits.hh"
 #include "base/chunk_generator.hh"
 #include "config/the_isa.hh"
 #include "mem/page_table.hh"
-#include "mem/se_translating_port_proxy.hh"
 #include "sim/process.hh"
 #include "sim/system.hh"
 
@@ -74,7 +75,7 @@ SETranslatingPortProxy::tryReadBlob(Addr addr, uint8_t *p, int size) const
         if (!pTable->translate(gen.addr(),paddr))
             return false;
 
-        PortProxy::readBlob(paddr, p + prevSize, gen.size());
+        PortProxy::readBlobPhys(paddr, 0, p + prevSize, gen.size());
         prevSize += gen.size();
     }
 
@@ -113,7 +114,7 @@ SETranslatingPortProxy::tryWriteBlob(Addr addr, const uint8_t *p,
             pTable->translate(gen.addr(), paddr);
         }
 
-        PortProxy::writeBlob(paddr, p + prevSize, gen.size());
+        PortProxy::writeBlobPhys(paddr, 0, p + prevSize, gen.size());
         prevSize += gen.size();
     }
 
@@ -144,7 +145,7 @@ SETranslatingPortProxy::tryMemsetBlob(Addr addr, uint8_t val, int size) const
             }
         }
 
-        PortProxy::memsetBlob(paddr, val, gen.size());
+        PortProxy::memsetBlobPhys(paddr, 0, val, gen.size());
     }
 
     return true;

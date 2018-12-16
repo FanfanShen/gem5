@@ -42,18 +42,19 @@
  *          Andreas Hansson
  */
 
-#include "base/random.hh"
 #include "mem/simple_mem.hh"
-#include "debug/Drain.hh"
 
-using namespace std;
+#include "base/random.hh"
+#include "base/trace.hh"
+#include "debug/Drain.hh"
 
 SimpleMemory::SimpleMemory(const SimpleMemoryParams* p) :
     AbstractMemory(p),
     port(name() + ".port", *this), latency(p->latency),
     latency_var(p->latency_var), bandwidth(p->bandwidth), isBusy(false),
     retryReq(false), retryResp(false),
-    releaseEvent(this), dequeueEvent(this)
+    releaseEvent([this]{ release(); }, name()),
+    dequeueEvent([this]{ dequeue(); }, name())
 {
 }
 
@@ -90,7 +91,7 @@ SimpleMemory::recvFunctional(PacketPtr pkt)
     auto p = packetQueue.begin();
     // potentially update the packets in our packet queue as well
     while (!done && p != packetQueue.end()) {
-        done = pkt->checkFunctional(p->pkt);
+        done = pkt->trySatisfyFunctional(p->pkt);
         ++p;
     }
 

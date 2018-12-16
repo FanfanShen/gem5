@@ -26,11 +26,13 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "mem/ruby/filters/MultiBitSelBloomFilter.hh"
+
 #include <vector>
 
 #include "base/intmath.hh"
+#include "base/logging.hh"
 #include "base/str.hh"
-#include "mem/ruby/filters/MultiBitSelBloomFilter.hh"
 
 using namespace std;
 
@@ -110,8 +112,7 @@ MultiBitSelBloomFilter::set(Addr addr)
 void
 MultiBitSelBloomFilter::unset(Addr addr)
 {
-    cout << "ERROR: Unset should never be called in a Bloom filter";
-    assert(0);
+    panic("ERROR: Unset should never be called in a Bloom filter");
 }
 
 bool

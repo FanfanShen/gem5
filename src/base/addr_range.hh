@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2014 ARM Limited
+ * Copyright (c) 2012, 2014, 2017-2018 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -45,12 +45,13 @@
 #ifndef __BASE_ADDR_RANGE_HH__
 #define __BASE_ADDR_RANGE_HH__
 
+#include <algorithm>
 #include <list>
 #include <vector>
 
 #include "base/bitfield.hh"
 #include "base/cprintf.hh"
-#include "base/misc.hh"
+#include "base/logging.hh"
 #include "base/types.hh"
 
 /**
@@ -195,7 +196,17 @@ class AddrRange
      */
     uint64_t granularity() const
     {
-        return ULL(1) << (intlvHighBit - intlvBits + 1);
+        if (interleaved()) {
+            const uint8_t intlv_low_bit = intlvHighBit - intlvBits + 1;
+            if (hashed()) {
+                const uint8_t xor_low_bit = xorHighBit - intlvBits + 1;
+                return ULL(1) << std::min(intlv_low_bit, xor_low_bit);
+            } else {
+                return ULL(1) << intlv_low_bit;
+            }
+        } else {
+            return size();
+        }
     }
 
     /**
@@ -316,7 +327,17 @@ class AddrRange
     {
         if (interleaved())
             panic("Cannot test subset of interleaved range %s\n", to_string());
-        return _start >= r._start && _end <= r._end;
+
+        // This address range is not interleaved and therefore it
+        // suffices to check the upper bound, the lower bound and
+        // whether it would fit in a continuous segment of the input
+        // addr range.
+        if (r.interleaved()) {
+            return r.contains(_start) && r.contains(_end) &&
+                size() <= r.granularity();
+        } else {
+            return _start >= r._start && _end <= r._end;
+        }
     }
 
     /**
@@ -346,10 +367,54 @@ class AddrRange
         return false;
     }
 
-/**
- * Keep the operators away from SWIG.
- */
-#ifndef SWIG
+    /**
+     * Remove the interleaving bits from an input address.
+     *
+     * This function returns a new address that doesn't have the bits
+     * that are use to determine which of the interleaved ranges it
+     * belongs to.
+     *
+     * e.g., if the input address is:
+     * -------------------------------
+     * | prefix | intlvBits | suffix |
+     * -------------------------------
+     * this function will return:
+     * -------------------------------
+     * |         0 | prefix | suffix |
+     * -------------------------------
+     *
+     * @param the input address
+     * @return the address without the interleaved bits
+     */
+    inline Addr removeIntlvBits(const Addr &a) const
+    {
+        const auto intlv_low_bit = intlvHighBit - intlvBits + 1;
+        return insertBits(a >> intlvBits, intlv_low_bit - 1, 0, a);
+    }
+
+    /**
+     * Determine the offset of an address within the range.
+     *
+     * This function returns the offset of the given address from the
+     * starting address discarding any bits that are used for
+     * interleaving. This way we can convert the input address to a
+     * new unique address in a continuous range that starts from 0.
+     *
+     * @param the input address
+     * @return the flat offset in the address range
+     */
+    Addr getOffset(const Addr& a) const
+    {
+        bool in_range = a >= _start && a <= _end;
+        if (!in_range) {
+            return MaxAddr;
+        }
+        if (interleaved()) {
+            return removeIntlvBits(a) - removeIntlvBits(_start);
+        } else {
+            return a - _start;
+        }
+    }
 
     /**
      * Less-than operator used to turn an STL map into a binary search
@@ -384,7 +449,6 @@ class AddrRange
     {
         return !(*this == r);
     }
-#endif // SWIG
 };
 
 /**

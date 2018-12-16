@@ -106,17 +106,6 @@ template <class Impl>
 void
 BaseO3DynInst<Impl>::initVars()
 {
-    // Make sure to have the renamed register entries set to the same
-    // as the normal register entries.  It will allow the IQ to work
-    // without any modifications.
-    for (int i = 0; i < this->staticInst->numDestRegs(); i++) {
-        this->_destRegIdx[i] = this->staticInst->destRegIdx(i);
-    }
-
-    for (int i = 0; i < this->staticInst->numSrcRegs(); i++) {
-        this->_srcRegIdx[i] = this->staticInst->srcRegIdx(i);
-    }
-
     this->_readySrcRegIdx.reset();
 
     _numDestMiscRegs = 0;
@@ -242,7 +231,7 @@ BaseO3DynInst<Impl>::simPalCheck(int palFunc)
 
 template <class Impl>
 void
-BaseO3DynInst<Impl>::syscall(int64_t callnum)
+BaseO3DynInst<Impl>::syscall(int64_t callnum, Fault *fault)
 {
     if (FullSystem)
         panic("Syscall emulation isn't available in FS mode.\n");
@@ -251,7 +240,7 @@ BaseO3DynInst<Impl>::syscall(int64_t callnum)
     // changes, update this instruction's nextPC because the syscall
     // must have changed the nextPC.
     TheISA::PCState curPC = this->cpu->pcState(this->threadNumber);
-    this->cpu->syscall(callnum, this->threadNumber);
+    this->cpu->syscall(callnum, this->threadNumber, fault);
     TheISA::PCState newPC = this->cpu->pcState(this->threadNumber);
     if (!(curPC == newPC)) {
         this->pcState(newPC);

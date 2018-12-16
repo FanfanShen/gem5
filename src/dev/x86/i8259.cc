@@ -28,10 +28,11 @@
  * Authors: Gabe Black
  */
 
+#include "dev/x86/i8259.hh"
+
 #include "base/bitfield.hh"
 #include "debug/I8259.hh"
 #include "dev/x86/i82094aa.hh"
-#include "dev/x86/i8259.hh"
 #include "mem/packet.hh"
 #include "mem/packet_access.hh"
 
@@ -55,15 +56,15 @@ X86ISA::I8259::read(PacketPtr pkt)
       case 0x0:
         if (readIRR) {
             DPRINTF(I8259, "Reading IRR as %#x.\n", IRR);
-            pkt->set(IRR);
+            pkt->setLE(IRR);
         } else {
             DPRINTF(I8259, "Reading ISR as %#x.\n", ISR);
-            pkt->set(ISR);
+            pkt->setLE(ISR);
         }
         break;
       case 0x1:
         DPRINTF(I8259, "Reading IMR as %#x.\n", IMR);
-        pkt->set(IMR);
+        pkt->setLE(IMR);
         break;
     }
     pkt->makeAtomicResponse();
@@ -74,7 +75,7 @@ Tick
 X86ISA::I8259::write(PacketPtr pkt)
 {
     assert(pkt->getSize() == 1);
-    uint8_t val = pkt->get<uint8_t>();
+    uint8_t val = pkt->getLE<uint8_t>();
     switch (pkt->getAddr() - pioAddr) {
       case 0x0:
         if (bits(val, 4)) {

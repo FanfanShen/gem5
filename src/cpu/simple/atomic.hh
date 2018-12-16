@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013,2015 ARM Limited
+ * Copyright (c) 2012-2013, 2015, 2018 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -45,6 +45,7 @@
 
 #include "cpu/simple/base.hh"
 #include "cpu/simple/exec_context.hh"
+#include "mem/request.hh"
 #include "params/AtomicSimpleCPU.hh"
 #include "sim/probe/probe.hh"
 
@@ -57,18 +58,9 @@ class AtomicSimpleCPU : public BaseSimpleCPU
 
     void init() override;
 
-  private:
+  protected:
 
-    struct TickEvent : public Event
-    {
-        AtomicSimpleCPU *cpu;
-
-        TickEvent(AtomicSimpleCPU *c);
-        void process();
-        const char *description() const;
-    };
-
-    TickEvent tickEvent;
+    EventFunctionWrapper tickEvent;
 
     const int width;
     bool locked;
@@ -111,6 +103,8 @@ class AtomicSimpleCPU : public BaseSimpleCPU
      */
     bool tryCompleteDrain();
 
+    virtual Tick sendPacket(MasterPort &port, const PacketPtr &pkt);
+
     /**
      * An AtomicCPUPort overrides the default behaviour of the
      * recvAtomicSnoop and ignores the packet instead of panicking. It
@@ -145,7 +139,6 @@ class AtomicSimpleCPU : public BaseSimpleCPU
     {
 
       public:
-
         AtomicCPUDPort(const std::string &_name, BaseSimpleCPU* _cpu)
             : AtomicCPUPort(_name, _cpu), cpu(_cpu)
         {
@@ -166,10 +159,10 @@ class AtomicSimpleCPU : public BaseSimpleCPU
     AtomicCPUPort icachePort;
     AtomicCPUDPort dcachePort;
 
-    bool fastmem;
-    Request ifetch_req;
-    Request data_read_req;
-    Request data_write_req;
+
+    RequestPtr ifetch_req;
+    RequestPtr data_read_req;
+    RequestPtr data_write_req;
 
     bool dcache_access;
     Tick dcache_latency;
@@ -202,12 +195,13 @@ class AtomicSimpleCPU : public BaseSimpleCPU
     void suspendContext(ThreadID thread_num) override;
 
     Fault readMem(Addr addr, uint8_t *data, unsigned size,
-                  unsigned flags) override;
+                  Request::Flags flags) override;
 
-    Fault initiateMemRead(Addr addr, unsigned size, unsigned flags) override;
+    Fault initiateMemRead(Addr addr, unsigned size,
+                          Request::Flags flags) override;
 
     Fault writeMem(uint8_t *data, unsigned size,
-                   Addr addr, unsigned flags, uint64_t *res) override;
+                   Addr addr, Request::Flags flags, uint64_t *res) override;
 
     void regProbePoints() override;
 

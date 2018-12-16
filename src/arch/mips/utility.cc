@@ -28,19 +28,19 @@
  * Authors: Korey Sewell
  */
 
+#include "arch/mips/utility.hh"
+
 #include <cmath>
 
 #include "arch/mips/isa_traits.hh"
 #include "arch/mips/registers.hh"
-#include "arch/mips/utility.hh"
 #include "arch/mips/vtophys.hh"
 #include "base/bitfield.hh"
-#include "base/misc.hh"
+#include "base/logging.hh"
 #include "cpu/static_inst.hh"
 #include "cpu/thread_context.hh"
 #include "mem/fs_translating_port_proxy.hh"
 #include "sim/serialize.hh"
-
 
 using namespace MipsISA;
 using namespace std;

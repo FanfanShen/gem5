@@ -26,21 +26,22 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "mem/ruby/system/Sequencer.hh"
+
 #include "arch/x86/ldstflags.hh"
-#include "base/misc.hh"
+#include "base/logging.hh"
 #include "base/str.hh"
 #include "cpu/testers/rubytest/RubyTester.hh"
 #include "debug/MemoryAccess.hh"
 #include "debug/ProtocolTrace.hh"
 #include "debug/RubySequencer.hh"
 #include "debug/RubyStats.hh"
+#include "mem/packet.hh"
 #include "mem/protocol/PrefetchBit.hh"
 #include "mem/protocol/RubyAccessMode.hh"
 #include "mem/ruby/profiler/Profiler.hh"
 #include "mem/ruby/slicc_interface/RubyRequest.hh"
 #include "mem/ruby/system/RubySystem.hh"
-#include "mem/ruby/system/Sequencer.hh"
-#include "mem/packet.hh"
 #include "sim/system.hh"
 
 using namespace std;
@@ -52,7 +53,8 @@ RubySequencerParams::create()
 }
 
 Sequencer::Sequencer(const Params *p)
-    : RubyPort(p), m_IncompleteTimes(MachineType_NUM), deadlockCheckEvent(this)
+    : RubyPort(p), m_IncompleteTimes(MachineType_NUM),
+      deadlockCheckEvent([this]{ wakeup(); }, "Sequencer deadlock check")
 {
     m_outstanding_count = 0;
 
@@ -71,7 +73,7 @@ Sequencer::Sequencer(const Params *p)
     assert(m_data_cache_hit_latency > 0);
     assert(m_inst_cache_hit_latency > 0);
 
-    m_usingNetworkTester = p->using_network_tester;
+    m_runningGarnetStandalone = p->garnet_standalone;
 }
 
 Sequencer::~Sequencer()
@@ -386,10 +388,10 @@ Sequencer::writeCallback(Addr address, DataBlock& data,
     // For Alpha, properly handle LL, SC, and write requests with respect to
     // locked cache blocks.
     //
-    // Not valid for Network_test protocl
+    // Not valid for Garnet_standalone protocl
     //
     bool success = true;
-    if (!m_usingNetworkTester)
+    if (!m_runningGarnetStandalone)
         success = handleLlsc(address, request);
 
     // Handle SLICC block_on behavior for Locked_RMW accesses. NOTE: the
@@ -474,21 +476,20 @@ Sequencer::hitCallback(SequencerRequest* srequest, DataBlock& data,
             (type == RubyRequestType_RMW_Read) ||
             (type == RubyRequestType_Locked_RMW_Read) ||
             (type == RubyRequestType_Load_Linked)) {
-            memcpy(pkt->getPtr<uint8_t>(),
-                   data.getData(getOffset(request_address), pkt->getSize()),
-                   pkt->getSize());
+            pkt->setData(
+                data.getData(getOffset(request_address), pkt->getSize()));
             DPRINTF(RubySequencer, "read data %s\n", data);
         } else if (pkt->req->isSwap()) {
             std::vector<uint8_t> overwrite_val(pkt->getSize());
-            memcpy(&overwrite_val[0], pkt->getConstPtr<uint8_t>(),
-                   pkt->getSize());
-            memcpy(pkt->getPtr<uint8_t>(),
-                   data.getData(getOffset(request_address), pkt->getSize()),
-                   pkt->getSize());
+            pkt->writeData(&overwrite_val[0]);
+            pkt->setData(
+                data.getData(getOffset(request_address), pkt->getSize()));
             data.setData(&overwrite_val[0],
                          getOffset(request_address), pkt->getSize());
             DPRINTF(RubySequencer, "swap data %s\n", data);
-        } else {
+        } else if (type != RubyRequestType_Store_Conditional || llscSuccess) {
+            // Types of stores set the actual data here, apart from
+            // failed Store Conditional requests
             data.setData(pkt->getConstPtr<uint8_t>(),
                          getOffset(request_address), pkt->getSize());
             DPRINTF(RubySequencer, "set data %s\n", data);
@@ -512,7 +513,6 @@ Sequencer::hitCallback(SequencerRequest* srequest, DataBlock& data,
     RubySystem *rs = m_ruby_system;
     if (RubySystem::getWarmupEnabled()) {
         assert(pkt->req);
-        delete pkt->req;
         delete pkt;
         rs->m_cache_recorder->enqueueNextFetchRequest();
     } else if (RubySystem::getCooldownEnabled()) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2015 ARM Limited
+ * Copyright (c) 2011-2015, 2018 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -47,11 +47,12 @@
  * Definition of a non-coherent crossbar object.
  */
 
-#include "base/misc.hh"
+#include "mem/noncoherent_xbar.hh"
+
+#include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/NoncoherentXBar.hh"
 #include "debug/XBar.hh"
-#include "mem/noncoherent_xbar.hh"
 
 NoncoherentXBar::NoncoherentXBar(const NoncoherentXBarParams *p)
     : BaseXBar(p)
@@ -87,8 +88,6 @@ NoncoherentXBar::NoncoherentXBar(const NoncoherentXBarParams *p)
         respLayers.push_back(new RespLayer(*bp, *this,
                                            csprintf(".respLayer%d", i)));
     }
-
-    clearPortCache();
 }
 
 NoncoherentXBar::~NoncoherentXBar()
@@ -109,7 +108,8 @@ NoncoherentXBar::recvTimingReq(PacketPtr pkt, PortID slave_port_id)
     assert(!pkt->isExpressSnoop());
 
     // determine the destination based on the address
-    PortID master_port_id = findPort(pkt->getAddr());
+    AddrRange addr_range = RangeSize(pkt->getAddr(), pkt->getSize());
+    PortID master_port_id = findPort(addr_range);
 
     // test if the layer should be considered occupied for the current
     // port
@@ -254,7 +254,8 @@ NoncoherentXBar::recvAtomic(PacketPtr pkt, PortID slave_port_id)
     unsigned int pkt_cmd = pkt->cmdToIndex();
 
     // determine the destination port
-    PortID master_port_id = findPort(pkt->getAddr());
+    AddrRange addr_range = RangeSize(pkt->getAddr(), pkt->getSize());
+    PortID master_port_id = findPort(addr_range);
 
     // stats updates for the request
     pktCount[slave_port_id][master_port_id]++;
@@ -296,7 +297,7 @@ NoncoherentXBar::recvFunctional(PacketPtr pkt, PortID slave_port_id)
         // if we find a response that has the data, then the
         // downstream caches/memories may be out of date, so simply stop
         // here
-        if (p->checkFunctional(pkt)) {
+        if (p->trySatisfyFunctional(pkt)) {
             if (pkt->needsResponse())
                 pkt->makeResponse();
             return;
@@ -304,7 +305,8 @@ NoncoherentXBar::recvFunctional(PacketPtr pkt, PortID slave_port_id)
     }
 
     // determine the destination port
-    PortID dest_id = findPort(pkt->getAddr());
+    AddrRange addr_range = RangeSize(pkt->getAddr(), pkt->getSize());
+    PortID dest_id = findPort(addr_range);
 
     // forward the request to the appropriate destination
     masterPorts[dest_id]->sendFunctional(pkt);

@@ -29,13 +29,14 @@
  *          Ali Saidi
  */
 
+#include "kern/linux/printk.hh"
+
 #include <sys/types.h>
 
 #include <algorithm>
 
 #include "base/trace.hh"
 #include "cpu/thread_context.hh"
-#include "kern/linux/printk.hh"
 #include "sim/arguments.hh"
 
 using namespace std;
@@ -100,6 +101,7 @@ Printk(stringstream &out, Arguments args)
                   break;
                 case 'P':
                   format = true;
+                  M5_FALLTHROUGH;
                 case 'p':
                   hexnum = true;
                   break;
@@ -257,4 +259,3 @@ Printk(stringstream &out, Arguments args)
     }
 
 }
-

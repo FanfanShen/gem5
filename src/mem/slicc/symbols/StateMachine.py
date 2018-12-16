@@ -459,6 +459,7 @@ void unset_tbe(${{self.TBEType.c_ident}}*& m_tbe_ptr);
 #include <typeinfo>
 
 #include "base/compiler.hh"
+#include "mem/ruby/common/BoolVec.hh"
 #include "base/cprintf.hh"
 
 ''')
@@ -469,6 +470,7 @@ void unset_tbe(${{self.TBEType.c_ident}}*& m_tbe_ptr);
 #include "mem/protocol/${ident}_Event.hh"
 #include "mem/protocol/${ident}_State.hh"
 #include "mem/protocol/Types.hh"
+#include "mem/ruby/network/Network.hh"
 #include "mem/ruby/system/RubySystem.hh"
 
 ''')
@@ -1049,7 +1051,7 @@ $c_ident::functionalWriteBuffers(PacketPtr& pkt)
 #include <cassert>
 #include <typeinfo>
 
-#include "base/misc.hh"
+#include "base/logging.hh"
 
 ''')
         for f in self.debug_flags:
@@ -1166,7 +1168,7 @@ ${ident}_Controller::wakeup()
 
 #include <cassert>
 
-#include "base/misc.hh"
+#include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/ProtocolTrace.hh"
 #include "debug/RubyGenerated.hh"
@@ -1398,7 +1400,7 @@ if (!checkResourceAvailable(%s_RequestType_%s, addr)) {
         code('''
       default:
         panic("Invalid transition\\n"
-              "%s time: %d addr: %s event: %s state: %s\\n",
+              "%s time: %d addr: %#x event: %s state: %s\\n",
               name(), curCycle(), addr, event, state);
     }
 

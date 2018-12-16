@@ -46,8 +46,8 @@
  * AbstractMemory declaration
  */
 
-#ifndef __ABSTRACT_MEMORY_HH__
-#define __ABSTRACT_MEMORY_HH__
+#ifndef __MEM_ABSTRACT_MEMORY_HH__
+#define __MEM_ABSTRACT_MEMORY_HH__
 
 #include "mem/mem_object.hh"
 #include "params/AbstractMemory.hh"
@@ -79,13 +79,13 @@ class LockedAddr {
     static Addr mask(Addr paddr) { return (paddr & ~Addr_Mask); }
 
     // check for matching execution context
-    bool matchesContext(Request *req) const
+    bool matchesContext(const RequestPtr &req) const
     {
         return (contextId == req->contextId());
     }
 
-    LockedAddr(Request *req) : addr(mask(req->getPaddr())),
-                               contextId(req->contextId())
+    LockedAddr(const RequestPtr &req) : addr(mask(req->getPaddr())),
+                                        contextId(req->contextId())
     {}
 
     // constructor for unserialization use
@@ -111,10 +111,13 @@ class AbstractMemory : public MemObject
     uint8_t* pmemAddr;
 
     // Enable specific memories to be reported to the configuration table
-    bool confTableReported;
+    const bool confTableReported;
 
     // Should the memory appear in the global address map
-    bool inAddrMap;
+    const bool inAddrMap;
+
+    // Should KVM map this memory for the guest
+    const bool kvmMap;
 
     std::list<LockedAddr> lockedAddrList;
 
@@ -137,7 +140,7 @@ class AbstractMemory : public MemObject
     // this method must be called on *all* stores since even
     // non-conditional stores must clear any matching lock addresses.
     bool writeOK(PacketPtr pkt) {
-        Request *req = pkt->req;
+        const RequestPtr &req = pkt->req;
         if (lockedAddrList.empty()) {
             // no locked addrs: nothing to check, store_conditional fails
             bool isLLSC = pkt->isLLSC();
@@ -283,6 +286,14 @@ class AbstractMemory : public MemObject
     bool isInAddrMap() const { return inAddrMap; }
 
     /**
+     * When shadow memories are in use, KVM may want to make one or the other,
+     * but cannot map both into the guest address space.
+     *
+     * @return if this memory should be mapped into the KVM guest address space
+     */
+    bool isKvmMap() const { return kvmMap; }
+
+    /**
      * Perform an untimed memory access and update all the state
      * (e.g. locked addresses) and statistics accordingly. The packet
      * is turned into a response if required.
@@ -308,4 +319,4 @@ class AbstractMemory : public MemObject
 
 };
 
-#endif //__ABSTRACT_MEMORY_HH__
+#endif //__MEM_ABSTRACT_MEMORY_HH__

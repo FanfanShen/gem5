@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2007 The Hewlett-Packard Development Company
+ * Copyright (c) 2018 TU Dresden
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -35,22 +36,17 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Authors: Gabe Black
+ *          Maximilian Stein
  */
+
+#include "arch/x86/system.hh"
 
 #include "arch/x86/bios/intelmp.hh"
 #include "arch/x86/bios/smbios.hh"
-#include "arch/x86/regs/misc.hh"
 #include "arch/x86/isa_traits.hh"
-#include "arch/x86/system.hh"
-#include "arch/vtophys.hh"
 #include "base/loader/object_file.hh"
-#include "base/loader/symtab.hh"
-#include "base/intmath.hh"
-#include "base/trace.hh"
 #include "cpu/thread_context.hh"
-#include "mem/port_proxy.hh"
 #include "params/X86System.hh"
-#include "sim/byteswap.hh"
 
 using namespace LittleEndianGuest;
 using namespace X86ISA;
@@ -67,12 +63,10 @@ void
 X86ISA::installSegDesc(ThreadContext *tc, SegmentRegIndex seg,
         SegDescriptor desc, bool longmode)
 {
-    uint64_t base = desc.baseLow + (desc.baseHigh << 24);
     bool honorBase = !longmode || seg == SEGMENT_REG_FS ||
                                   seg == SEGMENT_REG_GS ||
                                   seg == SEGMENT_REG_TSL ||
                                   seg == SYS_SEGMENT_REG_TR;
-    uint64_t limit = desc.limitLow | (desc.limitHigh << 16);
 
     SegAttr attr = 0;
 
@@ -103,9 +97,9 @@ X86ISA::installSegDesc(ThreadContext *tc, SegmentRegIndex seg,
         attr.expandDown = 0;
     }
 
-    tc->setMiscReg(MISCREG_SEG_BASE(seg), base);
-    tc->setMiscReg(MISCREG_SEG_EFF_BASE(seg), honorBase ? base : 0);
-    tc->setMiscReg(MISCREG_SEG_LIMIT(seg), limit);
+    tc->setMiscReg(MISCREG_SEG_BASE(seg), desc.base);
+    tc->setMiscReg(MISCREG_SEG_EFF_BASE(seg), honorBase ? desc.base : 0);
+    tc->setMiscReg(MISCREG_SEG_LIMIT(seg), desc.limit);
     tc->setMiscReg(MISCREG_SEG_ATTR(seg), (MiscReg)attr);
 }
 
@@ -161,19 +155,17 @@ X86System::initState()
     initDesc.d = 0;               // operand size
     initDesc.g = 1;               // granularity
     initDesc.s = 1;               // system segment
-    initDesc.limitHigh = 0xFFFF;
-    initDesc.limitLow = 0xF;
-    initDesc.baseHigh = 0x0;
-    initDesc.baseLow = 0x0;
+    initDesc.limit = 0xFFFFFFFF;
+    initDesc.base = 0;
 
-    //64 bit code segment
+    // 64 bit code segment
     SegDescriptor csDesc = initDesc;
     csDesc.type.codeOrData = 1;
     csDesc.dpl = 0;
-    //Because we're dealing with a pointer and I don't think it's
-    //guaranteed that there isn't anything in a nonvirtual class between
-    //it's beginning in memory and it's actual data, we'll use an
-    //intermediary.
+    // Because we're dealing with a pointer and I don't think it's
+    // guaranteed that there isn't anything in a nonvirtual class between
+    // it's beginning in memory and it's actual data, we'll use an
+    // intermediary.
     uint64_t csDescVal = csDesc;
     physProxy.writeBlob(GDTBase + numGDTEntries * 8,
                         (uint8_t *)(&csDescVal), 8);
@@ -185,7 +177,7 @@ X86System::initState()
 
     tc->setMiscReg(MISCREG_CS, (MiscReg)cs);
 
-    //32 bit data segment
+    // 32 bit data segment
     SegDescriptor dsDesc = initDesc;
     uint64_t dsDescVal = dsDesc;
     physProxy.writeBlob(GDTBase + numGDTEntries * 8,
@@ -277,27 +269,27 @@ X86System::initState()
      * Transition from real mode all the way up to Long mode
      */
     CR0 cr0 = tc->readMiscRegNoEffect(MISCREG_CR0);
-    //Turn off paging.
+    // Turn off paging.
     cr0.pg = 0;
     tc->setMiscReg(MISCREG_CR0, cr0);
-    //Turn on protected mode.
+    // Turn on protected mode.
     cr0.pe = 1;
     tc->setMiscReg(MISCREG_CR0, cr0);
 
     CR4 cr4 = tc->readMiscRegNoEffect(MISCREG_CR4);
-    //Turn on pae.
+    // Turn on pae.
     cr4.pae = 1;
     tc->setMiscReg(MISCREG_CR4, cr4);
 
-    //Point to the page tables.
+    // Point to the page tables.
     tc->setMiscReg(MISCREG_CR3, PageMapLevel4);
 
     Efer efer = tc->readMiscRegNoEffect(MISCREG_EFER);
-    //Enable long mode.
+    // Enable long mode.
     efer.lme = 1;
     tc->setMiscReg(MISCREG_EFER, efer);
 
-    //Start using longmode segments.
+    // Start using longmode segments.
     installSegDesc(tc, SEGMENT_REG_CS, csDesc, true);
     installSegDesc(tc, SEGMENT_REG_DS, dsDesc, true);
     installSegDesc(tc, SEGMENT_REG_ES, dsDesc, true);
@@ -305,7 +297,7 @@ X86System::initState()
     installSegDesc(tc, SEGMENT_REG_GS, dsDesc, true);
     installSegDesc(tc, SEGMENT_REG_SS, dsDesc, true);
 
-    //Activate long mode.
+    // Activate long mode.
     cr0.pg = 1;
     tc->setMiscReg(MISCREG_CR0, cr0);
 
@@ -316,12 +308,12 @@ X86System::initState()
     Addr ebdaPos = 0xF0000;
     Addr fixed, table;
 
-    //Write out the SMBios/DMI table
+    // Write out the SMBios/DMI table.
     writeOutSMBiosTable(ebdaPos, fixed, table);
     ebdaPos += (fixed + table);
     ebdaPos = roundUp(ebdaPos, 16);
 
-    //Write out the Intel MP Specification configuration table
+    // Write out the Intel MP Specification configuration table.
     writeOutMPTable(ebdaPos, fixed, table);
     ebdaPos += (fixed + table);
 }
@@ -331,7 +323,7 @@ X86System::writeOutSMBiosTable(Addr header,
         Addr &headerSize, Addr &structSize, Addr table)
 {
     // If the table location isn't specified, just put it after the header.
-    // The header size as of the 2.5 SMBios specification is 0x1F bytes
+    // The header size as of the 2.5 SMBios specification is 0x1F bytes.
     if (!table)
         table = header + 0x1F;
     smbiosTable->setTableAddr(table);

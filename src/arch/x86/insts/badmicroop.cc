@@ -37,9 +37,16 @@
  * Authors: Gabe Black
  */
 
-#include "arch/x86/generated/decoder.hh"
 #include "arch/x86/insts/badmicroop.hh"
+
+#include "arch/x86/generated/decoder.hh"
 #include "arch/x86/isa_traits.hh"
+
+namespace {
+
+static X86ISA::ExtMachInst dummyMachInst;
+
+}
 
 namespace X86ISA
 {
@@ -47,8 +54,9 @@ namespace X86ISA
 // This microop needs to be allocated on the heap even though it could
 // theoretically be statically allocated. The reference counted pointer would
 // try to delete the static memory when it was destructed.
+
 const StaticInstPtr badMicroop =
-    new X86ISAInst::MicroPanic(NoopMachInst, "BAD",
+    new X86ISAInst::MicroPanic(dummyMachInst, "BAD",
         StaticInst::IsMicroop | StaticInst::IsLastMicroop,
         "Invalid microop!", 0);
 

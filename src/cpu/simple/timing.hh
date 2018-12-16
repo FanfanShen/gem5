@@ -124,7 +124,7 @@ class TimingSimpleCPU : public BaseSimpleCPU
         }
 
         void
-        finish(const Fault &fault, RequestPtr req, ThreadContext *tc,
+        finish(const Fault &fault, const RequestPtr &req, ThreadContext *tc,
                BaseTLB::Mode mode)
         {
             cpu->sendFetch(fault, req, tc);
@@ -133,15 +133,18 @@ class TimingSimpleCPU : public BaseSimpleCPU
     FetchTranslation fetchTranslation;
 
     void threadSnoop(PacketPtr pkt, ThreadID sender);
-    void sendData(RequestPtr req, uint8_t *data, uint64_t *res, bool read);
-    void sendSplitData(RequestPtr req1, RequestPtr req2, RequestPtr req,
+    void sendData(const RequestPtr &req,
+                  uint8_t *data, uint64_t *res, bool read);
+    void sendSplitData(const RequestPtr &req1, const RequestPtr &req2,
+                       const RequestPtr &req,
                        uint8_t *data, bool read);
 
     void translationFault(const Fault &fault);
 
-    PacketPtr buildPacket(RequestPtr req, bool read);
+    PacketPtr buildPacket(const RequestPtr &req, bool read);
     void buildSplitPacket(PacketPtr &pkt1, PacketPtr &pkt2,
-            RequestPtr req1, RequestPtr req2, RequestPtr req,
+            const RequestPtr &req1, const RequestPtr &req2,
+            const RequestPtr &req,
             uint8_t *data, bool read);
 
     bool handleReadPacket(PacketPtr pkt);
@@ -159,7 +162,8 @@ class TimingSimpleCPU : public BaseSimpleCPU
       public:
 
         TimingCPUPort(const std::string& _name, TimingSimpleCPU* _cpu)
-            : MasterPort(_name, _cpu), cpu(_cpu), retryRespEvent(this)
+            : MasterPort(_name, _cpu), cpu(_cpu),
+              retryRespEvent([this]{ sendRetryResp(); }, name())
         { }
 
       protected:
@@ -176,7 +180,7 @@ class TimingSimpleCPU : public BaseSimpleCPU
             void schedule(PacketPtr _pkt, Tick t);
         };
 
-        EventWrapper<MasterPort, &MasterPort::sendRetryResp> retryRespEvent;
+        EventFunctionWrapper retryRespEvent;
     };
 
     class IcachePort : public TimingCPUPort
@@ -279,15 +283,17 @@ class TimingSimpleCPU : public BaseSimpleCPU
     void suspendContext(ThreadID thread_num) override;
 
     Fault readMem(Addr addr, uint8_t *data, unsigned size,
-                  unsigned flags) override;
+                  Request::Flags flags) override;
 
-    Fault initiateMemRead(Addr addr, unsigned size, unsigned flags) override;
+    Fault initiateMemRead(Addr addr, unsigned size,
+                          Request::Flags flags) override;
 
     Fault writeMem(uint8_t *data, unsigned size,
-                   Addr addr, unsigned flags, uint64_t *res) override;
+                   Addr addr, Request::Flags flags, uint64_t *res) override;
 
     void fetch();
-    void sendFetch(const Fault &fault, RequestPtr req, ThreadContext *tc);
+    void sendFetch(const Fault &fault,
+                   const RequestPtr &req, ThreadContext *tc);
     void completeIfetch(PacketPtr );
     void completeDataAccess(PacketPtr pkt);
     void advanceInst(const Fault &fault);
@@ -314,8 +320,7 @@ class TimingSimpleCPU : public BaseSimpleCPU
 
   private:
 
-    typedef EventWrapper<TimingSimpleCPU, &TimingSimpleCPU::fetch> FetchEvent;
-    FetchEvent fetchEvent;
+    EventFunctionWrapper fetchEvent;
 
     struct IprEvent : Event {
         Packet *pkt;

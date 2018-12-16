@@ -28,11 +28,12 @@
  * Authors: Steve Reinhardt
  */
 
+#include "base/loader/ecoff_object.hh"
+
 #include <string>
 
-#include "base/loader/ecoff_object.hh"
 #include "base/loader/symtab.hh"
-#include "base/misc.hh"
+#include "base/logging.hh"
 #include "base/trace.hh"
 #include "base/types.hh"
 #include "debug/Loader.hh"

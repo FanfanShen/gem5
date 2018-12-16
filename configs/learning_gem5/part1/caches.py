@@ -33,10 +33,13 @@ This file contains L1 I/D and L2 caches to be used in the simple
 gem5 configuration script. It uses the SimpleOpts wrapper to set up command
 line options from each individual class.
 """
-
+import m5
 from m5.objects import Cache
 
-import SimpleOpts
+# Add the common scripts to our path
+m5.util.addToPath('../../')
+
+from common import SimpleOpts
 
 # Some specific options for caches
 # For all options see src/mem/cache/BaseCache.py
@@ -45,7 +48,8 @@ class L1Cache(Cache):
     """Simple L1 Cache with default values"""
 
     assoc = 2
-    hit_latency = 2
+    tag_latency = 2
+    data_latency = 2
     response_latency = 2
     mshrs = 4
     tgts_per_mshr = 20
@@ -107,7 +111,8 @@ class L2Cache(Cache):
     # Default parameters
     size = '256kB'
     assoc = 8
-    hit_latency = 20
+    tag_latency = 20
+    data_latency = 20
     response_latency = 20
     mshrs = 20
     tgts_per_mshr = 12

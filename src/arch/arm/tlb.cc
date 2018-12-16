@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2013, 2016 ARM Limited
+ * Copyright (c) 2010-2013, 2016-2018 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -50,11 +50,12 @@
 
 #include "arch/arm/faults.hh"
 #include "arch/arm/pagetable.hh"
-#include "arch/arm/system.hh"
-#include "arch/arm/table_walker.hh"
 #include "arch/arm/stage2_lookup.hh"
 #include "arch/arm/stage2_mmu.hh"
+#include "arch/arm/system.hh"
+#include "arch/arm/table_walker.hh"
 #include "arch/arm/utility.hh"
+#include "arch/generic/mmapped_ipr.hh"
 #include "base/inifile.hh"
 #include "base/str.hh"
 #include "base/trace.hh"
@@ -64,6 +65,7 @@
 #include "debug/TLB.hh"
 #include "debug/TLBVerbose.hh"
 #include "mem/page_table.hh"
+#include "mem/request.hh"
 #include "params/ArmTLB.hh"
 #include "sim/full_system.hh"
 #include "sim/process.hh"
@@ -73,19 +75,24 @@ using namespace ArmISA;
 
 TLB::TLB(const ArmTLBParams *p)
     : BaseTLB(p), table(new TlbEntry[p->size]), size(p->size),
-      isStage2(p->is_stage2), stage2Req(false), _attr(0),
+      isStage2(p->is_stage2), stage2Req(false), stage2DescReq(false), _attr(0),
       directToStage2(false), tableWalker(p->walker), stage2Tlb(NULL),
       stage2Mmu(NULL), test(nullptr), rangeMRU(1),
       aarch64(false), aarch64EL(EL0), isPriv(false), isSecure(false),
-      isHyp(false), asid(0), vmid(0), dacr(0),
+      isHyp(false), asid(0), vmid(0), hcr(0), dacr(0),
       miscRegValid(false), miscRegContext(0), curTranType(NormalTran)
 {
+    const ArmSystem *sys = dynamic_cast<const ArmSystem *>(p->sys);
+
     tableWalker->setTlb(this);
 
     // Cache system-level properties
     haveLPAE = tableWalker->haveLPAE();
     haveVirtualization = tableWalker->haveVirtualization();
     haveLargeAsid64 = tableWalker->haveLargeAsid64();
+
+    if (sys)
+        m5opRange = sys->m5opRange();
 }
 
 TLB::~TLB()
@@ -126,8 +133,18 @@ TLB::translateFunctional(ThreadContext *tc, Addr va, Addr &pa)
 }
 
 Fault
-TLB::finalizePhysical(RequestPtr req, ThreadContext *tc, Mode mode) const
+TLB::finalizePhysical(const RequestPtr &req,
+                      ThreadContext *tc, Mode mode) const
 {
+    const Addr paddr = req->getPaddr();
+
+    if (m5opRange.contains(paddr)) {
+        req->setFlags(Request::MMAPPED_IPR | Request::GENERIC_IPR);
+        req->setPaddr(GenericISA::iprAddressPseudoInst(
+                          (paddr >> 8) & 0xFF,
+                          paddr & 0xFF));
+    }
+
     return NoFault;
 }
 
@@ -337,6 +354,13 @@ TLB::_flushMva(Addr mva, uint64_t asn, bool secure_lookup, bool hyp,
     }
 }
 
+void
+TLB::flushIpaVmid(Addr ipa, bool secure_lookup, bool hyp, uint8_t target_el)
+{
+    assert(!isStage2);
+    stage2Tlb->_flushMva(ipa, 0xbeef, secure_lookup, hyp, true, target_el);
+}
+
 bool
 TLB::checkELMatch(uint8_t target_el, uint8_t tentry_el, bool ignore_el)
 {
@@ -369,6 +393,7 @@ TLB::takeOverFrom(BaseTLB *_otlb)
         haveLPAE = otlb->haveLPAE;
         directToStage2 = otlb->directToStage2;
         stage2Req = otlb->stage2Req;
+        stage2DescReq = otlb->stage2DescReq;
 
         /* Sync the stage2 MMU if they exist in both
          * the old CPU and the new
@@ -391,6 +416,7 @@ TLB::serialize(CheckpointOut &cp) const
     SERIALIZE_SCALAR(haveLPAE);
     SERIALIZE_SCALAR(directToStage2);
     SERIALIZE_SCALAR(stage2Req);
+    SERIALIZE_SCALAR(stage2DescReq);
 
     int num_entries = size;
     SERIALIZE_SCALAR(num_entries);
@@ -407,6 +433,7 @@ TLB::unserialize(CheckpointIn &cp)
     UNSERIALIZE_SCALAR(haveLPAE);
     UNSERIALIZE_SCALAR(directToStage2);
     UNSERIALIZE_SCALAR(stage2Req);
+    UNSERIALIZE_SCALAR(stage2DescReq);
 
     int num_entries;
     UNSERIALIZE_SCALAR(num_entries);
@@ -538,7 +565,7 @@ TLB::regProbePoints()
 }
 
 Fault
-TLB::translateSe(RequestPtr req, ThreadContext *tc, Mode mode,
+TLB::translateSe(const RequestPtr &req, ThreadContext *tc, Mode mode,
                  Translation *translation, bool &delay, bool timing)
 {
     updateMiscReg(tc);
@@ -548,7 +575,7 @@ TLB::translateSe(RequestPtr req, ThreadContext *tc, Mode mode,
         vaddr = purifyTaggedAddr(vaddr_tainted, tc, aarch64EL, ttbcr);
     else
         vaddr = vaddr_tainted;
-    uint32_t flags = req->getFlags();
+    Request::Flags flags = req->getFlags();
 
     bool is_fetch = (mode == Execute);
     bool is_write = (mode == Write);
@@ -574,14 +601,20 @@ TLB::translateSe(RequestPtr req, ThreadContext *tc, Mode mode,
         return std::make_shared<GenericPageTableFault>(vaddr_tainted);
     req->setPaddr(paddr);
 
-    return NoFault;
+    return finalizePhysical(req, tc, mode);
 }
 
 Fault
-TLB::checkPermissions(TlbEntry *te, RequestPtr req, Mode mode)
+TLB::checkPermissions(TlbEntry *te, const RequestPtr &req, Mode mode)
 {
+    // a data cache maintenance instruction that operates by MVA does
+    // not generate a Data Abort exeception due to a Permission fault
+    if (req->isCacheMaintenance()) {
+        return NoFault;
+    }
+
     Addr vaddr = req->getVaddr(); // 32-bit don't have to purify
-    uint32_t flags = req->getFlags();
+    Request::Flags flags = req->getFlags();
     bool is_fetch  = (mode == Execute);
     bool is_write  = (mode == Write);
     bool is_priv   = isPriv && !(flags & UserMode);
@@ -634,12 +667,15 @@ TLB::checkPermissions(TlbEntry *te, RequestPtr req, Mode mode)
             DPRINTF(TLB, "TLB Fault: Data abort on domain. DACR: %#x"
                     " domain: %#x write:%d\n", dacr,
                     static_cast<uint8_t>(te->domain), is_write);
-            if (is_fetch)
+            if (is_fetch) {
+                // Use PC value instead of vaddr because vaddr might
+                // be aligned to cache line and should not be the
+                // address reported in FAR
                 return std::make_shared<PrefetchAbort>(
-                    vaddr,
+                    req->getPC(),
                     ArmFault::DomainLL + te->lookupLevel,
                     isStage2, tranMethod);
-            else
+            } else
                 return std::make_shared<DataAbort>(
                     vaddr, te->domain, is_write,
                     ArmFault::DomainLL + te->lookupLevel,
@@ -727,8 +763,10 @@ TLB::checkPermissions(TlbEntry *te, RequestPtr req, Mode mode)
         DPRINTF(TLB, "TLB Fault: Prefetch abort on permission check. AP:%d "
                      "priv:%d write:%d ns:%d sif:%d sctlr.afe: %d \n",
                      ap, is_priv, is_write, te->ns, scr.sif,sctlr.afe);
+        // Use PC value instead of vaddr because vaddr might be aligned to
+        // cache line and should not be the address reported in FAR
         return std::make_shared<PrefetchAbort>(
-            vaddr,
+            req->getPC(),
             ArmFault::PermissionLL + te->lookupLevel,
             isStage2, tranMethod);
     } else if (abt | hapAbt) {
@@ -745,17 +783,27 @@ TLB::checkPermissions(TlbEntry *te, RequestPtr req, Mode mode)
 
 
 Fault
-TLB::checkPermissions64(TlbEntry *te, RequestPtr req, Mode mode,
+TLB::checkPermissions64(TlbEntry *te, const RequestPtr &req, Mode mode,
                         ThreadContext *tc)
 {
     assert(aarch64);
 
+    // A data cache maintenance instruction that operates by VA does
+    // not generate a Permission fault unless:
+    // * It is a data cache invalidate (dc ivac) which requires write
+    //   permissions to the VA, or
+    // * It is executed from EL0
+    if (req->isCacheClean() && aarch64EL != EL0 && !isStage2) {
+        return NoFault;
+    }
+
     Addr vaddr_tainted = req->getVaddr();
     Addr vaddr = purifyTaggedAddr(vaddr_tainted, tc, aarch64EL, ttbcr);
 
-    uint32_t flags = req->getFlags();
+    Request::Flags flags = req->getFlags();
     bool is_fetch  = (mode == Execute);
-    bool is_write  = (mode == Write);
+    // Cache clean operations require read permissions to the specified VA
+    bool is_write = !req->isCacheClean() && mode == Write;
     bool is_priv M5_VAR_USED  = isPriv && !(flags & UserMode);
 
     updateMiscReg(tc, curTranType);
@@ -811,7 +859,19 @@ TLB::checkPermissions64(TlbEntry *te, RequestPtr req, Mode mode,
                         "w:%d, x:%d\n", ap, xn, pxn, r, w, x);
 
     if (isStage2) {
-        panic("Virtualization in AArch64 state is not supported yet");
+        assert(ArmSystem::haveVirtualization(tc) && aarch64EL != EL2);
+        // In stage 2 we use the hypervisor access permission bits.
+        // The following permissions are described in ARM DDI 0487A.f
+        // D4-1802
+        uint8_t hap = 0x3 & te->hap;
+        if (is_fetch) {
+            // sctlr.wxn overrides the xn bit
+            grant = !sctlr.wxn && !xn;
+        } else if (is_write) {
+            grant = hap & 0x2;
+        } else { // is_read
+            grant = hap & 0x1;
+        }
     } else {
         switch (aarch64EL) {
           case EL0:
@@ -933,7 +993,7 @@ TLB::checkPermissions64(TlbEntry *te, RequestPtr req, Mode mode,
 }
 
 Fault
-TLB::translateFs(RequestPtr req, ThreadContext *tc, Mode mode,
+TLB::translateFs(const RequestPtr &req, ThreadContext *tc, Mode mode,
         Translation *translation, bool &delay, bool timing,
         TLB::ArmTranslationType tranType, bool functional)
 {
@@ -948,7 +1008,7 @@ TLB::translateFs(RequestPtr req, ThreadContext *tc, Mode mode,
         vaddr = purifyTaggedAddr(vaddr_tainted, tc, aarch64EL, ttbcr);
     else
         vaddr = vaddr_tainted;
-    uint32_t flags = req->getFlags();
+    Request::Flags flags = req->getFlags();
 
     bool is_fetch  = (mode == Execute);
     bool is_write  = (mode == Write);
@@ -962,12 +1022,15 @@ TLB::translateFs(RequestPtr req, ThreadContext *tc, Mode mode,
             isPriv, flags & UserMode, isSecure, tranType & S1S2NsTran);
 
     DPRINTF(TLB, "translateFs addr %#x, mode %d, st2 %d, scr %#x sctlr %#x "
-                 "flags %#x tranType 0x%x\n", vaddr_tainted, mode, isStage2,
+                 "flags %#lx tranType 0x%x\n", vaddr_tainted, mode, isStage2,
                  scr, sctlr, flags, tranType);
 
     if ((req->isInstFetch() && (!sctlr.i)) ||
         ((!req->isInstFetch()) && (!sctlr.c))){
-       req->setFlags(Request::UNCACHEABLE | Request::STRICT_ORDER);
+        if (!req->isCacheMaintenance()) {
+            req->setFlags(Request::UNCACHEABLE);
+        }
+        req->setFlags(Request::STRICT_ORDER);
     }
     if (!is_fetch) {
         assert(flags & MustBeOne);
@@ -993,11 +1056,12 @@ TLB::translateFs(RequestPtr req, ThreadContext *tc, Mode mode,
             req->setFlags(Request::SECURE);
 
         // @todo: double check this (ARM ARM issue C B3.2.1)
-        if (long_desc_format || sctlr.tre == 0) {
-            req->setFlags(Request::UNCACHEABLE | Request::STRICT_ORDER);
-        } else {
-            if (nmrr.ir0 == 0 || nmrr.or0 == 0 || prrr.tr0 != 0x2)
-                req->setFlags(Request::UNCACHEABLE | Request::STRICT_ORDER);
+        if (long_desc_format || sctlr.tre == 0 || nmrr.ir0 == 0 ||
+            nmrr.or0 == 0 || prrr.tr0 != 0x2) {
+            if (!req->isCacheMaintenance()) {
+                req->setFlags(Request::UNCACHEABLE);
+            }
+            req->setFlags(Request::STRICT_ORDER);
         }
 
         // Set memory attributes
@@ -1051,7 +1115,7 @@ TLB::translateFs(RequestPtr req, ThreadContext *tc, Mode mode,
                 static_cast<uint8_t>(te->mtype), isStage2);
         setAttr(te->attributes);
 
-        if (te->nonCacheable)
+        if (te->nonCacheable && !req->isCacheMaintenance())
             req->setFlags(Request::UNCACHEABLE);
 
         // Require requests to be ordered if the request goes to
@@ -1083,18 +1147,17 @@ TLB::translateFs(RequestPtr req, ThreadContext *tc, Mode mode,
             fault = testTranslation(req, mode, te->domain);
     }
 
-    // Generate Illegal Inst Set State fault if IL bit is set in CPSR
     if (fault == NoFault) {
-        if (aarch64 && is_fetch && cpsr.il == 1) {
-            return std::make_shared<IllegalInstSetStateFault>();
-        }
+        // Don't try to finalize a physical address unless the
+        // translation has completed (i.e., there is a table entry).
+        return te ? finalizePhysical(req, tc, mode) : NoFault;
+    } else {
+        return fault;
     }
-
-    return fault;
 }
 
 Fault
-TLB::translateAtomic(RequestPtr req, ThreadContext *tc, Mode mode,
+TLB::translateAtomic(const RequestPtr &req, ThreadContext *tc, Mode mode,
     TLB::ArmTranslationType tranType)
 {
     updateMiscReg(tc, tranType);
@@ -1115,7 +1178,7 @@ TLB::translateAtomic(RequestPtr req, ThreadContext *tc, Mode mode,
 }
 
 Fault
-TLB::translateFunctional(RequestPtr req, ThreadContext *tc, Mode mode,
+TLB::translateFunctional(const RequestPtr &req, ThreadContext *tc, Mode mode,
     TLB::ArmTranslationType tranType)
 {
     updateMiscReg(tc, tranType);
@@ -1135,24 +1198,25 @@ TLB::translateFunctional(RequestPtr req, ThreadContext *tc, Mode mode,
     return fault;
 }
 
-Fault
-TLB::translateTiming(RequestPtr req, ThreadContext *tc,
+void
+TLB::translateTiming(const RequestPtr &req, ThreadContext *tc,
     Translation *translation, Mode mode, TLB::ArmTranslationType tranType)
 {
     updateMiscReg(tc, tranType);
 
     if (directToStage2) {
         assert(stage2Tlb);
-        return stage2Tlb->translateTiming(req, tc, translation, mode, tranType);
+        stage2Tlb->translateTiming(req, tc, translation, mode, tranType);
+        return;
     }
 
     assert(translation);
 
-    return translateComplete(req, tc, translation, mode, tranType, isStage2);
+    translateComplete(req, tc, translation, mode, tranType, isStage2);
 }
 
 Fault
-TLB::translateComplete(RequestPtr req, ThreadContext *tc,
+TLB::translateComplete(const RequestPtr &req, ThreadContext *tc,
         Translation *translation, Mode mode, TLB::ArmTranslationType tranType,
         bool callFromS2)
 {
@@ -1203,12 +1267,13 @@ TLB::updateMiscReg(ThreadContext *tc, ArmTranslationType tranType)
     isSecure = inSecureState(tc) &&
         !(tranType & HypMode) && !(tranType & S1S2NsTran);
 
-    const OperatingMode op_mode = (OperatingMode) (uint8_t)cpsr.mode;
-    aarch64 = opModeIs64(op_mode) ||
-        (opModeToEL(op_mode) == EL0 && ELIs64(tc, EL1));
+    aarch64EL = tranTypeEL(cpsr, tranType);
+    aarch64 = isStage2 ?
+        ELIs64(tc, EL2) :
+        ELIs64(tc, aarch64EL == EL0 ? EL1 : aarch64EL);
 
     if (aarch64) {  // AArch64
-        aarch64EL = (ExceptionLevel) (uint8_t) cpsr.el;
+        // determine EL we need to translate in
         switch (aarch64EL) {
           case EL0:
           case EL1:
@@ -1233,37 +1298,54 @@ TLB::updateMiscReg(ThreadContext *tc, ArmTranslationType tranType)
             asid = -1;
             break;
         }
+        hcr = tc->readMiscReg(MISCREG_HCR_EL2);
         scr = tc->readMiscReg(MISCREG_SCR_EL3);
         isPriv = aarch64EL != EL0;
-        // @todo: modify this behaviour to support Virtualization in
-        // AArch64
-        vmid           = 0;
-        isHyp          = false;
-        directToStage2 = false;
-        stage2Req      = false;
+        if (haveVirtualization) {
+            vmid           = bits(tc->readMiscReg(MISCREG_VTTBR_EL2), 55, 48);
+            isHyp  =  tranType & HypMode;
+            isHyp &= (tranType & S1S2NsTran) == 0;
+            isHyp &= (tranType & S1CTran)    == 0;
+            // Work out if we should skip the first stage of translation and go
+            // directly to stage 2. This value is cached so we don't have to
+            // compute it for every translation.
+            stage2Req = isStage2 ||
+                        (hcr.vm && !isHyp && !isSecure &&
+                         !(tranType & S1CTran) && (aarch64EL < EL2) &&
+                         !(tranType & S1E1Tran)); // <--- FIX THIS HACK
+            stage2DescReq = isStage2 ||  (hcr.vm && !isHyp && !isSecure &&
+                            (aarch64EL < EL2));
+            directToStage2 = !isStage2 && stage2Req && !sctlr.m;
+        } else {
+            vmid           = 0;
+            isHyp          = false;
+            directToStage2 = false;
+            stage2Req      = false;
+            stage2DescReq  = false;
+        }
     } else {  // AArch32
-        sctlr  = tc->readMiscReg(flattenMiscRegNsBanked(MISCREG_SCTLR, tc,
+        sctlr  = tc->readMiscReg(snsBankedIndex(MISCREG_SCTLR, tc,
                                  !isSecure));
-        ttbcr  = tc->readMiscReg(flattenMiscRegNsBanked(MISCREG_TTBCR, tc,
+        ttbcr  = tc->readMiscReg(snsBankedIndex(MISCREG_TTBCR, tc,
                                  !isSecure));
         scr    = tc->readMiscReg(MISCREG_SCR);
         isPriv = cpsr.mode != MODE_USER;
         if (longDescFormatInUse(tc)) {
             uint64_t ttbr_asid = tc->readMiscReg(
-                flattenMiscRegNsBanked(ttbcr.a1 ? MISCREG_TTBR1
-                                                : MISCREG_TTBR0,
+                snsBankedIndex(ttbcr.a1 ? MISCREG_TTBR1 :
+                                          MISCREG_TTBR0,
                                        tc, !isSecure));
             asid = bits(ttbr_asid, 55, 48);
         } else { // Short-descriptor translation table format in use
-            CONTEXTIDR context_id = tc->readMiscReg(flattenMiscRegNsBanked(
+            CONTEXTIDR context_id = tc->readMiscReg(snsBankedIndex(
                 MISCREG_CONTEXTIDR, tc,!isSecure));
             asid = context_id.asid;
         }
-        prrr = tc->readMiscReg(flattenMiscRegNsBanked(MISCREG_PRRR, tc,
+        prrr = tc->readMiscReg(snsBankedIndex(MISCREG_PRRR, tc,
                                !isSecure));
-        nmrr = tc->readMiscReg(flattenMiscRegNsBanked(MISCREG_NMRR, tc,
+        nmrr = tc->readMiscReg(snsBankedIndex(MISCREG_NMRR, tc,
                                !isSecure));
-        dacr = tc->readMiscReg(flattenMiscRegNsBanked(MISCREG_DACR, tc,
+        dacr = tc->readMiscReg(snsBankedIndex(MISCREG_DACR, tc,
                                !isSecure));
         hcr  = tc->readMiscReg(MISCREG_HCR);
 
@@ -1281,12 +1363,14 @@ TLB::updateMiscReg(ThreadContext *tc, ArmTranslationType tranType)
             // compute it for every translation.
             stage2Req      = hcr.vm && !isStage2 && !isHyp && !isSecure &&
                              !(tranType & S1CTran);
+            stage2DescReq  = hcr.vm && !isStage2 && !isHyp && !isSecure;
             directToStage2 = stage2Req && !sctlr.m;
         } else {
             vmid           = 0;
             stage2Req      = false;
             isHyp          = false;
             directToStage2 = false;
+            stage2DescReq  = false;
         }
     }
     miscRegValid = true;
@@ -1294,8 +1378,37 @@ TLB::updateMiscReg(ThreadContext *tc, ArmTranslationType tranType)
     curTranType  = tranType;
 }
 
+ExceptionLevel
+TLB::tranTypeEL(CPSR cpsr, ArmTranslationType type)
+{
+    switch (type) {
+      case S1E0Tran:
+      case S12E0Tran:
+        return EL0;
+
+      case S1E1Tran:
+      case S12E1Tran:
+        return EL1;
+
+      case S1E2Tran:
+        return EL2;
+
+      case S1E3Tran:
+        return EL3;
+
+      case NormalTran:
+      case S1CTran:
+      case S1S2NsTran:
+      case HypMode:
+        return opModeToEL((OperatingMode)(uint8_t)cpsr.mode);
+
+      default:
+        panic("Unknown translation mode!\n");
+    }
+}
+
 Fault
-TLB::getTE(TlbEntry **te, RequestPtr req, ThreadContext *tc, Mode mode,
+TLB::getTE(TlbEntry **te, const RequestPtr &req, ThreadContext *tc, Mode mode,
         Translation *translation, bool timing, bool functional,
         bool is_secure, TLB::ArmTranslationType tranType)
 {
@@ -1335,7 +1448,7 @@ TLB::getTE(TlbEntry **te, RequestPtr req, ThreadContext *tc, Mode mode,
         Fault fault;
         fault = tableWalker->walk(req, tc, asid, vmid, isHyp, mode,
                                   translation, timing, functional, is_secure,
-                                  tranType);
+                                  tranType, stage2DescReq);
         // for timing mode, return and wait for table walk,
         if (timing || fault != NoFault) {
             return fault;
@@ -1357,11 +1470,31 @@ TLB::getTE(TlbEntry **te, RequestPtr req, ThreadContext *tc, Mode mode,
 }
 
 Fault
-TLB::getResultTe(TlbEntry **te, RequestPtr req, ThreadContext *tc, Mode mode,
+TLB::getResultTe(TlbEntry **te, const RequestPtr &req,
+        ThreadContext *tc, Mode mode,
         Translation *translation, bool timing, bool functional,
         TlbEntry *mergeTe)
 {
     Fault fault;
+
+    if (isStage2) {
+        // We are already in the stage 2 TLB. Grab the table entry for stage
+        // 2 only. We are here because stage 1 translation is disabled.
+        TlbEntry *s2Te = NULL;
+        // Get the stage 2 table entry
+        fault = getTE(&s2Te, req, tc, mode, translation, timing, functional,
+                      isSecure, curTranType);
+        // Check permissions of stage 2
+        if ((s2Te != NULL) && (fault == NoFault)) {
+            if (aarch64)
+                fault = checkPermissions64(s2Te, req, mode, tc);
+            else
+                fault = checkPermissions(s2Te, req, mode);
+        }
+        *te = s2Te;
+        return fault;
+    }
+
     TlbEntry *s1Te = NULL;
 
     Addr vaddr_tainted = req->getVaddr();
@@ -1421,9 +1554,11 @@ TLB::setTestInterface(SimObject *_ti)
 }
 
 Fault
-TLB::testTranslation(RequestPtr req, Mode mode, TlbEntry::DomainType domain)
+TLB::testTranslation(const RequestPtr &req, Mode mode,
+                     TlbEntry::DomainType domain)
 {
-    if (!test || !req->hasSize() || req->getSize() == 0) {
+    if (!test || !req->hasSize() || req->getSize() == 0 ||
+        req->isCacheMaintenance()) {
         return NoFault;
     } else {
         return test->translationCheck(req, isPriv, mode, domain);

@@ -49,19 +49,20 @@
  * Authors: Gabe Black
  */
 
+#include "arch/x86/interrupts.hh"
+
 #include <memory>
 
-#include "arch/x86/regs/apic.hh"
-#include "arch/x86/interrupts.hh"
 #include "arch/x86/intmessage.hh"
+#include "arch/x86/regs/apic.hh"
 #include "cpu/base.hh"
 #include "debug/LocalApic.hh"
 #include "dev/x86/i82094aa.hh"
 #include "dev/x86/pc.hh"
 #include "dev/x86/south_bridge.hh"
 #include "mem/packet_access.hh"
-#include "sim/system.hh"
 #include "sim/full_system.hh"
+#include "sim/system.hh"
 
 int
 divideFromConf(uint32_t conf)
@@ -311,7 +312,7 @@ X86ISA::Interrupts::recvMessage(PacketPtr pkt)
     {
       case 0:
         {
-            TriggerIntMessage message = pkt->get<TriggerIntMessage>();
+            TriggerIntMessage message = pkt->getRaw<TriggerIntMessage>();
             DPRINTF(LocalApic,
                     "Got Trigger Interrupt message with vector %#x.\n",
                     message.vector);
@@ -587,7 +588,7 @@ X86ISA::Interrupts::setReg(ApicRegIndex reg, uint32_t val)
 
 X86ISA::Interrupts::Interrupts(Params * p)
     : BasicPioDevice(p, PageBytes), IntDevice(this, p->int_latency),
-      apicTimerEvent(this),
+      apicTimerEvent([this]{ processApicTimerEvent(); }, name()),
       pendingSmi(false), smiVector(0),
       pendingNmi(false), nmiVector(0),
       pendingExtInt(false), extIntVector(0),
@@ -765,4 +766,10 @@ X86ISA::Interrupts *
 X86LocalApicParams::create()
 {
     return new X86ISA::Interrupts(this);
+}
+
+void
+X86ISA::Interrupts::processApicTimerEvent() {
+    if (triggerTimerInterrupt())
+        setReg(APIC_INITIAL_COUNT, readReg(APIC_INITIAL_COUNT));
 }

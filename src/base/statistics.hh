@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2003-2005 The Regents of The University of Michigan
+ * Copyright (c) 2017, Centre National de la Recherche Scientifique
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -26,6 +27,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * Authors: Nathan Binkert
+ *          Pierre-Yves Peneau
  */
 
 /** @file
@@ -159,6 +161,8 @@ class Vector2dInfoProxy : public InfoProxy<Stat, Vector2dInfo>
 {
   public:
     Vector2dInfoProxy(Stat &stat) : InfoProxy<Stat, Vector2dInfo>(stat) {}
+
+    Result total() const { return this->s.total(); }
 };
 
 struct StorageParams
@@ -228,7 +232,7 @@ class DataWrap : public InfoAccess
     /**
      * Copy constructor, copies are not allowed.
      */
-    DataWrap(const DataWrap &stat) {}
+    DataWrap(const DataWrap &stat) = delete;
 
     /**
      * Can't copy stats.
@@ -1298,6 +1302,19 @@ class Vector2dBase : public DataWrapVec2d<Derived, Vector2dInfoProxy>
 #endif
     }
 
+    /**
+     * Return a total of all entries in this vector.
+     * @return The total of all vector entries.
+     */
+    Result
+    total() const
+    {
+        Result total = 0.0;
+        for (off_type i = 0; i < size(); ++i)
+            total += data(i)->result();
+        return total;
+    }
+
     void
     prepare()
     {
@@ -1344,7 +1361,7 @@ struct DistParams : public StorageParams
 };
 
 /**
- * Templatized storage and interface for a distrbution stat.
+ * Templatized storage and interface for a distribution stat.
  */
 class DistStor
 {
@@ -1879,7 +1896,7 @@ class DistBase : public DataWrap<Derived, DistInfoProxy>
     }
 
     /**
-     *  Add the argument distribution to the this distibution.
+     *  Add the argument distribution to the this distribution.
      */
     void add(DistBase &d) { data()->add(d.data()); }
 
@@ -2073,6 +2090,8 @@ class Node
      *
      */
     virtual std::string str() const = 0;
+
+    virtual ~Node() {};
 };
 
 /** Shared pointer to a function Node. */
@@ -2303,7 +2322,7 @@ class BinaryNode : public Node
     BinaryNode(NodePtr &a, NodePtr &b) : l(a), r(b) {}
 
     const VResult &
-    result() const
+    result() const override
     {
         Op op;
         const VResult &lvec = l->result();
@@ -2335,7 +2354,7 @@ class BinaryNode : public Node
     }
 
     Result
-    total() const
+    total() const override
     {
         const VResult &vec = this->result();
         const VResult &lvec = l->result();
@@ -2367,7 +2386,7 @@ class BinaryNode : public Node
     }
 
     size_type
-    size() const
+    size() const override
     {
         size_type ls = l->size();
         size_type rs = r->size();
@@ -2382,7 +2401,7 @@ class BinaryNode : public Node
     }
 
     std::string
-    str() const
+    str() const override
     {
         return csprintf("(%s %s %s)", l->str(), OpString<Op>::str(), r->str());
     }

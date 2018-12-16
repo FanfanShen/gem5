@@ -111,12 +111,18 @@ NSGigE::NSGigE(Params *p)
       dmaReadFactor(p->dma_read_factor), dmaWriteFactor(p->dma_write_factor),
       rxDmaData(NULL), rxDmaAddr(0), rxDmaLen(0),
       txDmaData(NULL), txDmaAddr(0), txDmaLen(0),
-      rxDmaReadEvent(this), rxDmaWriteEvent(this),
-      txDmaReadEvent(this), txDmaWriteEvent(this),
+      rxDmaReadEvent([this]{ rxDmaReadDone(); }, name()),
+      rxDmaWriteEvent([this]{ rxDmaWriteDone(); }, name()),
+      txDmaReadEvent([this]{ txDmaReadDone(); }, name()),
+      txDmaWriteEvent([this]{ txDmaWriteDone(); }, name()),
       dmaDescFree(p->dma_desc_free), dmaDataFree(p->dma_data_free),
       txDelay(p->tx_delay), rxDelay(p->rx_delay),
-      rxKickTick(0), rxKickEvent(this), txKickTick(0), txKickEvent(this),
-      txEvent(this), rxFilterEnable(p->rx_filter),
+      rxKickTick(0),
+      rxKickEvent([this]{ rxKick(); }, name()),
+      txKickTick(0),
+      txKickEvent([this]{ txKick(); }, name()),
+      txEvent([this]{ txEventTransmit(); }, name()),
+      rxFilterEnable(p->rx_filter),
       acceptBroadcast(false), acceptMulticast(false), acceptUnicast(false),
       acceptPerfect(false), acceptArp(false), multicastHashEnable(false),
       intrDelay(p->intr_delay), intrTick(0), cpuPendingIntr(false),
@@ -203,7 +209,7 @@ NSGigE::read(PacketPtr pkt)
         // don't implement all the MIB's.  hopefully the kernel
         // doesn't actually DEPEND upon their values
         // MIB are just hardware stats keepers
-        pkt->set<uint32_t>(0);
+        pkt->setLE<uint32_t>(0);
         pkt->makeAtomicResponse();
         return pioDelay;
     } else if (daddr > 0x3FC)
@@ -421,7 +427,7 @@ NSGigE::write(PacketPtr pkt)
         panic("Something is messed up!\n");
 
     if (pkt->getSize() == sizeof(uint32_t)) {
-        uint32_t reg = pkt->get<uint32_t>();
+        uint32_t reg = pkt->getLE<uint32_t>();
         uint16_t rfaddr;
 
         DPRINTF(EthernetPIO, "write data=%d data=%#x\n", reg, reg);
@@ -736,6 +742,7 @@ NSGigE::write(PacketPtr pkt)
                 panic("writing RFDR for something other than pattern matching "
                     "or hashing! %#x\n", rfaddr);
             }
+            break;
 
           case BRAR:
             regs.brar = reg;
@@ -959,7 +966,9 @@ NSGigE::cpuIntrPost(Tick when)
 
     if (intrEvent)
         intrEvent->squash();
-    intrEvent = new IntrEvent(this, true);
+
+    intrEvent = new EventFunctionWrapper([this]{ cpuInterrupt(); },
+                                         name(), true);
     schedule(intrEvent, intrTick);
 }
 
@@ -1738,6 +1747,7 @@ NSGigE::txKick()
                     }
                 }
 
+                txPacket->simLength = txPacketBufPtr - txPacket->data;
                 txPacket->length = txPacketBufPtr - txPacket->data;
                 // this is just because the receive can't handle a
                 // packet bigger want to make sure
@@ -2186,6 +2196,7 @@ NSGigE::serialize(CheckpointOut &cp) const
     bool txPacketExists = txPacket != nullptr;
     SERIALIZE_SCALAR(txPacketExists);
     if (txPacketExists) {
+        txPacket->simLength = txPacketBufPtr - txPacket->data;
         txPacket->length = txPacketBufPtr - txPacket->data;
         txPacket->serialize("txPacket", cp);
         uint32_t txPktBufPtr = (uint32_t) (txPacketBufPtr - txPacket->data);
@@ -2362,7 +2373,7 @@ NSGigE::unserialize(CheckpointIn &cp)
     UNSERIALIZE_SCALAR(rxPacketExists);
     rxPacket = 0;
     if (rxPacketExists) {
-        rxPacket = make_shared<EthPacketData>(16384);
+        rxPacket = make_shared<EthPacketData>();
         rxPacket->unserialize("rxPacket", cp);
         uint32_t rxPktBufPtr;
         UNSERIALIZE_SCALAR(rxPktBufPtr);
@@ -2468,7 +2479,8 @@ NSGigE::unserialize(CheckpointIn &cp)
     Tick intrEventTick;
     UNSERIALIZE_SCALAR(intrEventTick);
     if (intrEventTick) {
-        intrEvent = new IntrEvent(this, true);
+        intrEvent = new EventFunctionWrapper([this]{ cpuInterrupt(); },
+                                             name(), true);
         schedule(intrEvent, intrEventTick);
     }
 }

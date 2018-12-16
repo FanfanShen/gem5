@@ -201,7 +201,7 @@ class Sequencer : public RubyPort
 
     int m_coreId;
 
-    bool m_usingNetworkTester;
+    bool m_runningGarnetStandalone;
 
     //! Histogram for number of outstanding requests per cycle.
     Stats::Histogram m_outstandReqHist;
@@ -237,19 +237,7 @@ class Sequencer : public RubyPort
     std::vector<Stats::Histogram *> m_FirstResponseToCompletionDelayHist;
     std::vector<Stats::Counter> m_IncompleteTimes;
 
-
-    class SequencerWakeupEvent : public Event
-    {
-      private:
-        Sequencer *m_sequencer_ptr;
-
-      public:
-        SequencerWakeupEvent(Sequencer *_seq) : m_sequencer_ptr(_seq) {}
-        void process() { m_sequencer_ptr->wakeup(); }
-        const char *description() const { return "Sequencer deadlock check"; }
-    };
-
-    SequencerWakeupEvent deadlockCheckEvent;
+    EventFunctionWrapper deadlockCheckEvent;
 };
 
 inline std::ostream&

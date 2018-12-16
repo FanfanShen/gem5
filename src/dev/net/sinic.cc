@@ -91,7 +91,9 @@ Device::Device(const Params *p)
       virtualRegs(p->virtual_count < 1 ? 1 : p->virtual_count),
       rxFifo(p->rx_fifo_size), txFifo(p->tx_fifo_size),
       rxKickTick(0), txKickTick(0),
-      txEvent(this), rxDmaEvent(this), txDmaEvent(this),
+      txEvent([this]{ txEventTransmit(); }, name()),
+      rxDmaEvent([this]{ rxDmaDone(); }, name()),
+      txDmaEvent([this]{ txDmaDone(); }, name()),
       dmaReadDelay(p->dma_read_delay), dmaReadFactor(p->dma_read_factor),
       dmaWriteDelay(p->dma_write_delay), dmaWriteFactor(p->dma_write_factor)
 {
@@ -246,13 +248,13 @@ Device::read(PacketPtr pkt)
     uint64_t value M5_VAR_USED = 0;
     if (pkt->getSize() == 4) {
         uint32_t reg = regData32(raddr);
-        pkt->set(reg);
+        pkt->setLE(reg);
         value = reg;
     }
 
     if (pkt->getSize() == 8) {
         uint64_t reg = regData64(raddr);
-        pkt->set(reg);
+        pkt->setLE(reg);
         value = reg;
     }
 
@@ -331,26 +333,28 @@ Device::write(PacketPtr pkt)
 
     DPRINTF(EthernetPIO,
             "write %s vnic %d: cpu=%d val=%#x da=%#x pa=%#x size=%d\n",
-            info.name, index, cpu, info.size == 4 ? pkt->get<uint32_t>() :
-            pkt->get<uint64_t>(), daddr, pkt->getAddr(), pkt->getSize());
+            info.name, index, cpu, info.size == 4 ?
+            pkt->getLE<uint32_t>() : pkt->getLE<uint64_t>(),
+            daddr, pkt->getAddr(), pkt->getSize());
 
     prepareWrite(cpu, index);
 
     switch (raddr) {
       case Regs::Config:
-        changeConfig(pkt->get<uint32_t>());
+        changeConfig(pkt->getLE<uint32_t>());
         break;
 
       case Regs::Command:
-        command(pkt->get<uint32_t>());
+        command(pkt->getLE<uint32_t>());
         break;
 
       case Regs::IntrStatus:
-        devIntrClear(regs.IntrStatus & pkt->get<uint32_t>());
+        devIntrClear(regs.IntrStatus &
+                pkt->getLE<uint32_t>());
         break;
 
       case Regs::IntrMask:
-        devIntrChangeMask(pkt->get<uint32_t>());
+        devIntrChangeMask(pkt->getLE<uint32_t>());
         break;
 
       case Regs::RxData:
@@ -360,10 +364,10 @@ Device::write(PacketPtr pkt)
 
         vnic.rxUnique = rxUnique++;
         vnic.RxDone = Regs::RxDone_Busy;
-        vnic.RxData = pkt->get<uint64_t>();
+        vnic.RxData = pkt->getLE<uint64_t>();
         rxBusyCount++;
 
-        if (Regs::get_RxData_Vaddr(pkt->get<uint64_t>())) {
+        if (Regs::get_RxData_Vaddr(pkt->getLE<uint64_t>())) {
             panic("vtophys not implemented in newmem");
 #ifdef SINIC_VTOPHYS
             Addr vaddr = Regs::get_RxData_Addr(reg64);
@@ -401,7 +405,7 @@ Device::write(PacketPtr pkt)
         vnic.txUnique = txUnique++;
         vnic.TxDone = Regs::TxDone_Busy;
 
-        if (Regs::get_TxData_Vaddr(pkt->get<uint64_t>())) {
+        if (Regs::get_TxData_Vaddr(pkt->getLE<uint64_t>())) {
             panic("vtophys won't work here in newmem.\n");
 #ifdef SINIC_VTOPHYS
             Addr vaddr = Regs::get_TxData_Addr(reg64);
@@ -535,7 +539,9 @@ Base::cpuIntrPost(Tick when)
 
     if (intrEvent)
         intrEvent->squash();
-    intrEvent = new IntrEvent(this, true);
+
+    intrEvent = new EventFunctionWrapper([this]{ cpuInterrupt(); },
+                                         name(), true);
     schedule(intrEvent, intrTick);
 }
 
@@ -1085,6 +1091,7 @@ Device::txKick()
 
       case txCopyDone:
         vnic->TxDone = txDmaLen | Regs::TxDone_Complete;
+        txPacket->simLength += txDmaLen;
         txPacket->length += txDmaLen;
         if ((vnic->TxData & Regs::TxData_More)) {
             txPacketOffset += txDmaLen;
@@ -1296,7 +1303,8 @@ Base::unserialize(CheckpointIn &cp)
     Tick intrEventTick;
     UNSERIALIZE_SCALAR(intrEventTick);
     if (intrEventTick) {
-        intrEvent = new IntrEvent(this, true);
+        intrEvent = new EventFunctionWrapper([this]{ cpuInterrupt(); },
+                                             name(), true);
         schedule(intrEvent, intrEventTick);
     }
 }

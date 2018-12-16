@@ -33,22 +33,19 @@
 #  Author: Brad Beckmann
 #
 
+from __future__ import print_function
+
 import m5
 from m5.objects import *
 from m5.defines import buildEnv
 from m5.util import addToPath
 import os, optparse, sys, math, glob
 
-# Get paths we might need
-config_path = os.path.dirname(os.path.abspath(__file__))
-config_root = os.path.dirname(config_path)
-addToPath(config_root+'/configs/common')
-addToPath(config_root+'/configs/ruby')
-addToPath(config_root+'/configs/topologies')
+m5.util.addToPath('../configs/')
 
-import Ruby
-import Options
-import GPUTLBOptions, GPUTLBConfig
+from ruby import Ruby
+from common import Options
+from common import GPUTLBOptions, GPUTLBConfig
 
 ########################## Script Options ########################
 def setOption(parser, opt_str, value = 1):
@@ -82,7 +79,7 @@ def run_test(root):
 
     # simulate until program terminates
     exit_event = m5.simulate(maxtick)
-    print 'Exiting @ tick', m5.curTick(), 'because', exit_event.getCause()
+    print('Exiting @ tick', m5.curTick(), 'because', exit_event.getCause())
 
 parser = optparse.OptionParser()
 Options.addCommonOptions(parser)

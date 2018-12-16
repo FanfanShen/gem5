@@ -156,8 +156,7 @@ class Bridge : public MemObject
         void trySendTiming();
 
         /** Send event for the response queue. */
-        EventWrapper<BridgeSlavePort,
-                     &BridgeSlavePort::trySendTiming> sendEvent;
+        EventFunctionWrapper sendEvent;
 
       public:
 
@@ -255,8 +254,7 @@ class Bridge : public MemObject
         void trySendTiming();
 
         /** Send event for the request queue. */
-        EventWrapper<BridgeMasterPort,
-                     &BridgeMasterPort::trySendTiming> sendEvent;
+        EventFunctionWrapper sendEvent;
 
       public:
 
@@ -297,7 +295,7 @@ class Bridge : public MemObject
          *
          * @return true if we find a match
          */
-        bool checkFunctional(PacketPtr pkt);
+        bool trySatisfyFunctional(PacketPtr pkt);
 
       protected:
 

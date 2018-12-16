@@ -29,43 +29,53 @@
  *          Ali Saidi
  */
 
-#include "arch/alpha/isa_traits.hh"
 #include "arch/alpha/process.hh"
+
+#include "arch/alpha/isa_traits.hh"
 #include "base/loader/elf_object.hh"
 #include "base/loader/object_file.hh"
-#include "base/misc.hh"
+#include "base/logging.hh"
 #include "cpu/thread_context.hh"
 #include "debug/Loader.hh"
 #include "mem/page_table.hh"
+#include "params/Process.hh"
+#include "sim/aux_vector.hh"
 #include "sim/byteswap.hh"
 #include "sim/process_impl.hh"
+#include "sim/syscall_return.hh"
 #include "sim/system.hh"
 
 using namespace AlphaISA;
 using namespace std;
 
-AlphaLiveProcess::AlphaLiveProcess(LiveProcessParams *params,
-                                   ObjectFile *objFile)
-    : LiveProcess(params, objFile)
+AlphaProcess::AlphaProcess(ProcessParams *params, ObjectFile *objFile)
+    : Process(params,
+              new EmulationPageTable(params->name, params->pid, PageBytes),
+      objFile)
 {
-    brk_point = objFile->dataBase() + objFile->dataSize() + objFile->bssSize();
+    fatal_if(params->useArchPT, "Arch page tables not implemented.");
+    Addr brk_point = objFile->dataBase() + objFile->dataSize() +
+                     objFile->bssSize();
     brk_point = roundUp(brk_point, PageBytes);
 
     // Set up stack.  On Alpha, stack goes below text section.  This
     // code should get moved to some architecture-specific spot.
-    stack_base = objFile->textBase() - (409600+4096);
+    Addr stack_base = objFile->textBase() - (409600+4096);
 
-    // Set up region for mmaps.  Tru64 seems to start just above 0 and
-    // grow up from there.
-    mmap_end = 0x10000;
+    // Set up region for mmaps.
+    Addr mmap_end = 0x10000;
+
+    Addr max_stack_size = 8 * 1024 * 1024;
 
     // Set pointer for next thread stack.  Reserve 8M for main stack.
-    next_thread_stack_base = stack_base - (8 * 1024 * 1024);
+    Addr next_thread_stack_base = stack_base - max_stack_size;
 
+    memState = make_shared<MemState>(brk_point, stack_base, max_stack_size,
+                                     next_thread_stack_base, mmap_end);
 }
 
 void
-AlphaLiveProcess::argsInit(int intSize, int pageSize)
+AlphaProcess::argsInit(int intSize, int pageSize)
 {
     // Patch the ld_bias for dynamic executables.
     updateBias();
@@ -128,15 +138,16 @@ AlphaLiveProcess::argsInit(int intSize, int pageSize)
         space_needed = 32*1024;
 
     // set bottom of stack
-    stack_min = stack_base - space_needed;
+    memState->setStackMin(memState->getStackBase() - space_needed);
     // align it
-    stack_min = roundDown(stack_min, pageSize);
-    stack_size = stack_base - stack_min;
+    memState->setStackMin(roundDown(memState->getStackMin(), pageSize));
+    memState->setStackSize(memState->getStackBase() - memState->getStackMin());
     // map memory
-    allocateMem(stack_min, roundUp(stack_size, pageSize));
+    allocateMem(memState->getStackMin(), roundUp(memState->getStackSize(),
+                pageSize));
 
     // map out initial stack contents
-    Addr argv_array_base = stack_min + intSize; // room for argc
+    Addr argv_array_base = memState->getStackMin() + intSize; // room for argc
     Addr envp_array_base = argv_array_base + argv_array_size;
     Addr auxv_array_base = envp_array_base + envp_array_size;
     Addr arg_data_base = auxv_array_base + auxv_array_size;
@@ -151,7 +162,7 @@ AlphaLiveProcess::argsInit(int intSize, int pageSize)
     else
         panic("Unknown int size");
 
-    initVirtMem.writeBlob(stack_min, (uint8_t*)&argc, intSize);
+    initVirtMem.writeBlob(memState->getStackMin(), (uint8_t*)&argc, intSize);
 
     copyStringArray(argv, argv_array_base, arg_data_base, initVirtMem);
     copyStringArray(envp, envp_array_base, env_data_base, initVirtMem);
@@ -159,46 +170,46 @@ AlphaLiveProcess::argsInit(int intSize, int pageSize)
     //Copy the aux stuff
     for (vector<auxv_t>::size_type x = 0; x < auxv.size(); x++) {
         initVirtMem.writeBlob(auxv_array_base + x * 2 * intSize,
-                (uint8_t*)&(auxv[x].a_type), intSize);
+                (uint8_t*)&(auxv[x].getAuxType()), intSize);
         initVirtMem.writeBlob(auxv_array_base + (x * 2 + 1) * intSize,
-                (uint8_t*)&(auxv[x].a_val), intSize);
+                (uint8_t*)&(auxv[x].getAuxVal()), intSize);
     }
 
     ThreadContext *tc = system->getThreadContext(contextIds[0]);
 
     setSyscallArg(tc, 0, argc);
     setSyscallArg(tc, 1, argv_array_base);
-    tc->setIntReg(StackPointerReg, stack_min);
+    tc->setIntReg(StackPointerReg, memState->getStackMin());
 
     tc->pcState(getStartPC());
 }
 
 void
-AlphaLiveProcess::setupASNReg()
+AlphaProcess::setupASNReg()
 {
     ThreadContext *tc = system->getThreadContext(contextIds[0]);
-    tc->setMiscRegNoEffect(IPR_DTB_ASN, M5_pid << 57);
+    tc->setMiscRegNoEffect(IPR_DTB_ASN, _pid << 57);
 }
 
 
 void
-AlphaLiveProcess::loadState(CheckpointIn &cp)
+AlphaProcess::unserialize(CheckpointIn &cp)
 {
-    LiveProcess::loadState(cp);
-    // need to set up ASN after unserialization since M5_pid value may
+    Process::unserialize(cp);
+    // need to set up ASN after unserialization since _pid value may
     // come from checkpoint
     setupASNReg();
 }
 
 
 void
-AlphaLiveProcess::initState()
+AlphaProcess::initState()
 {
     // need to set up ASN before further initialization since init
     // will involve writing to virtual memory addresses
     setupASNReg();
 
-    LiveProcess::initState();
+    Process::initState();
 
     argsInit(MachineBytes, PageBytes);
 
@@ -212,22 +223,21 @@ AlphaLiveProcess::initState()
 }
 
 AlphaISA::IntReg
-AlphaLiveProcess::getSyscallArg(ThreadContext *tc, int &i)
+AlphaProcess::getSyscallArg(ThreadContext *tc, int &i)
 {
     assert(i < 6);
     return tc->readIntReg(FirstArgumentReg + i++);
 }
 
 void
-AlphaLiveProcess::setSyscallArg(ThreadContext *tc,
-        int i, AlphaISA::IntReg val)
+AlphaProcess::setSyscallArg(ThreadContext *tc, int i, AlphaISA::IntReg val)
 {
     assert(i < 6);
     tc->setIntReg(FirstArgumentReg + i, val);
 }
 
 void
-AlphaLiveProcess::setSyscallReturn(ThreadContext *tc, SyscallReturn sysret)
+AlphaProcess::setSyscallReturn(ThreadContext *tc, SyscallReturn sysret)
 {
     // check for error condition.  Alpha syscall convention is to
     // indicate success/failure in reg a3 (r19) and put the

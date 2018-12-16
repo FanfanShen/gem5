@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2015 ARM Limited
+ * Copyright (c) 2010-2016 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -761,11 +761,6 @@ class TableWalker : public MemObject
         /** Flag indicating if a second stage of lookup is required */
         bool stage2Req;
 
-        /** Indicates whether the translation has been passed onto the second
-         *  stage mmu, and no more work is required from the first stage.
-         */
-        bool doingStage2;
-
         /** A pointer to the stage 2 translation that's in progress */
         TLB::Translation *stage2Tran;
 
@@ -899,10 +894,11 @@ class TableWalker : public MemObject
 
     void regStats() override;
 
-    Fault walk(RequestPtr req, ThreadContext *tc, uint16_t asid, uint8_t _vmid,
+    Fault walk(const RequestPtr &req, ThreadContext *tc,
+               uint16_t asid, uint8_t _vmid,
                bool _isHyp, TLB::Mode mode, TLB::Translation *_trans,
                bool timing, bool functional, bool secure,
-               TLB::ArmTranslationType tranType);
+               TLB::ArmTranslationType tranType, bool _stage2Req);
 
     void setTlb(TLB *_tlb) { tlb = _tlb; }
     TLB* getTlb() { return tlb; }
@@ -911,8 +907,8 @@ class TableWalker : public MemObject
                   uint8_t texcb, bool s);
     void memAttrsLPAE(ThreadContext *tc, TlbEntry &te,
                       LongDescriptor &lDescriptor);
-    void memAttrsAArch64(ThreadContext *tc, TlbEntry &te, uint8_t attrIndx,
-                         uint8_t sh);
+    void memAttrsAArch64(ThreadContext *tc, TlbEntry &te,
+                         LongDescriptor &lDescriptor);
 
     static LookupLevel toLookupLevel(uint8_t lookup_level_as_int);
 
@@ -920,30 +916,25 @@ class TableWalker : public MemObject
 
     void doL1Descriptor();
     void doL1DescriptorWrapper();
-    EventWrapper<TableWalker,
-                 &TableWalker::doL1DescriptorWrapper> doL1DescEvent;
+    EventFunctionWrapper doL1DescEvent;
 
     void doL2Descriptor();
     void doL2DescriptorWrapper();
-    EventWrapper<TableWalker,
-                 &TableWalker::doL2DescriptorWrapper> doL2DescEvent;
+    EventFunctionWrapper doL2DescEvent;
 
     void doLongDescriptor();
 
     void doL0LongDescriptorWrapper();
-    EventWrapper<TableWalker,
-                 &TableWalker::doL0LongDescriptorWrapper> doL0LongDescEvent;
+    EventFunctionWrapper doL0LongDescEvent;
     void doL1LongDescriptorWrapper();
-    EventWrapper<TableWalker,
-                 &TableWalker::doL1LongDescriptorWrapper> doL1LongDescEvent;
+    EventFunctionWrapper doL1LongDescEvent;
     void doL2LongDescriptorWrapper();
-    EventWrapper<TableWalker,
-                 &TableWalker::doL2LongDescriptorWrapper> doL2LongDescEvent;
+    EventFunctionWrapper doL2LongDescEvent;
     void doL3LongDescriptorWrapper();
-    EventWrapper<TableWalker,
-                 &TableWalker::doL3LongDescriptorWrapper> doL3LongDescEvent;
+    EventFunctionWrapper doL3LongDescEvent;
 
     void doLongDescriptorWrapper(LookupLevel curr_lookup_level);
+    Event* LongDescEventByLevel[4];
 
     bool fetchDescriptor(Addr descAddr, uint8_t *data, int numBytes,
         Request::Flags flags, int queueIndex, Event *event,
@@ -959,7 +950,7 @@ class TableWalker : public MemObject
     static bool checkAddrSizeFaultAArch64(Addr addr, int currPhysAddrRange);
     Fault processWalkAArch64();
     void processWalkWrapper();
-    EventWrapper<TableWalker, &TableWalker::processWalkWrapper> doProcessEvent;
+    EventFunctionWrapper doProcessEvent;
 
     void nextWalk(ThreadContext *tc);
 

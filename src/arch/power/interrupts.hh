@@ -31,10 +31,11 @@
 #ifndef __ARCH_POWER_INTERRUPT_HH__
 #define __ARCH_POWER_INTERRUPT_HH__
 
-#include "base/misc.hh"
+#include "base/logging.hh"
 #include "params/PowerInterrupts.hh"
 #include "sim/sim_object.hh"
 
+class BaseCPU;
 class ThreadContext;
 
 namespace PowerISA {
@@ -89,6 +90,7 @@ class Interrupts : public SimObject
     Fault
     getInterrupt(ThreadContext *tc)
     {
+        assert(checkInterrupts(tc));
         panic("Interrupts::getInterrupt not implemented.\n");
     }
 

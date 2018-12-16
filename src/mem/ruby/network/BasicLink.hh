@@ -26,8 +26,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __MEM_RUBY_NETWORK_BASIC_LINK_HH__
-#define __MEM_RUBY_NETWORK_BASIC_LINK_HH__
+#ifndef __MEM_RUBY_NETWORK_BASICLINK_HH__
+#define __MEM_RUBY_NETWORK_BASICLINK_HH__
 
 #include <iostream>
 #include <string>
@@ -73,10 +73,6 @@ class BasicExtLink : public BasicLink
     const Params *params() const { return (const Params *)_params; }
 
     friend class Topology;
-
-  protected:
-    BasicRouter* m_int_node;
-    AbstractController* m_ext_node;
 };
 
 class BasicIntLink : public BasicLink
@@ -87,10 +83,6 @@ class BasicIntLink : public BasicLink
     const Params *params() const { return (const Params *)_params; }
 
     friend class Topology;
-
-  protected:
-    BasicRouter* m_node_a;
-    BasicRouter* m_node_b;
 };
 
-#endif // __MEM_RUBY_NETWORK_BASIC_LINK_HH__
+#endif //__MEM_RUBY_NETWORK_BASICLINK_HH__

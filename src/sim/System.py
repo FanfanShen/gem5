@@ -1,3 +1,15 @@
+# Copyright (c) 2017 ARM Limited
+# All rights reserved.
+#
+# The license below extends only to copyright in the software and shall
+# not be construed as granting a license to any other intellectual
+# property including but not limited to intellectual property relating
+# to a hardware implementation of the functionality of the software
+# licensed hereunder.  You may use the software subject to the license
+# terms below provided that you ensure that this notice is replicated
+# unmodified and in its entirety in all distributions of the software,
+# modified or unmodified, in source code or in binary form.
+#
 # Copyright (c) 2005-2007 The Regents of The University of Michigan
 # Copyright (c) 2011 Regents of the University of California
 # All rights reserved.
@@ -28,7 +40,7 @@
 # Authors: Nathan Binkert
 #          Rick Strong
 
-from m5.SimObject import SimObject
+from m5.SimObject import *
 from m5.defines import buildEnv
 from m5.params import *
 from m5.proxy import *
@@ -44,16 +56,10 @@ class System(MemObject):
     cxx_header = "sim/system.hh"
     system_port = MasterPort("System port")
 
-    @classmethod
-    def export_method_cxx_predecls(cls, code):
-        code('#include "sim/system.hh"')
-
-    @classmethod
-    def export_methods(cls, code):
-        code('''
-      Enums::MemoryMode getMemoryMode() const;
-      void setMemoryMode(Enums::MemoryMode mode);
-''')
+    cxx_exports = [
+        PyBindMethod("getMemoryMode"),
+        PyBindMethod("setMemoryMode"),
+    ]
 
     memories = VectorParam.AbstractMemory(Self.all,
                                           "All memories in the system")
@@ -65,7 +71,7 @@ class System(MemObject):
 
     # When reserving memory on the host, we have the option of
     # reserving swap space or not (by passing MAP_NORESERVE to
-    # mmap). By enabling this flag, we accomodate cases where a large
+    # mmap). By enabling this flag, we accommodate cases where a large
     # (but sparse) memory is simulated.
     mmap_using_noreserve = Param.Bool(False, "mmap the backing store " \
                                           "without reserving swap")
@@ -99,10 +105,13 @@ class System(MemObject):
     kernel = Param.String("", "file that contains the kernel code")
     kernel_addr_check = Param.Bool(True,
         "whether to address check on kernel (disable for baremetal)")
+    kernel_extras = VectorParam.String([],"Additional object files to load")
     readfile = Param.String("", "file to read startup script from")
     symbolfile = Param.String("", "file to get the symbols from")
-    load_addr_mask = Param.UInt64(0xffffffffff,
-            "Address to mask loading binaries with")
+    load_addr_mask = Param.UInt64(0xffffffffffffffff,
+            "Address to mask loading binaries with, if 0, system "
+            "auto-calculates the mask to be the most restrictive, "
+            "otherwise it obeys a custom mask.")
     load_offset = Param.UInt64(0, "Address to offset loading binaries with")
 
     multi_thread = Param.Bool(False,
@@ -111,3 +120,6 @@ class System(MemObject):
     # Dynamic voltage and frequency handler for the system, disabled by default
     # Provide list of domains that need to be controlled by the handler
     dvfs_handler = DVFSHandler()
+
+    if buildEnv['USE_KVM']:
+        kvm_vm = Param.KvmVM(NULL, 'KVM VM (i.e., shared memory domain)')

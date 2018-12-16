@@ -42,9 +42,11 @@
  *          Andreas Hansson
  */
 
+#include "cpu/testers/memtest/memtest.hh"
+
 #include "base/random.hh"
 #include "base/statistics.hh"
-#include "cpu/testers/memtest/memtest.hh"
+#include "base/trace.hh"
 #include "debug/MemTest.hh"
 #include "mem/mem_object.hh"
 #include "sim/sim_exit.hh"
@@ -84,9 +86,9 @@ MemTest::sendPkt(PacketPtr pkt) {
 
 MemTest::MemTest(const Params *p)
     : MemObject(p),
-      tickEvent(this),
-      noRequestEvent(this),
-      noResponseEvent(this),
+      tickEvent([this]{ tick(); }, name()),
+      noRequestEvent([this]{ noRequest(); }, name()),
+      noResponseEvent([this]{ noResponse(); }, name()),
       port("port", *this),
       retryPkt(nullptr),
       size(p->size),
@@ -94,7 +96,7 @@ MemTest::MemTest(const Params *p)
       percentReads(p->percent_reads),
       percentFunctional(p->percent_functional),
       percentUncacheable(p->percent_uncacheable),
-      masterId(p->system->getMasterId(name())),
+      masterId(p->system->getMasterId(this)),
       blockSize(p->system->cacheLineSize()),
       blockAddrMask(blockSize - 1),
       progressInterval(p->progress_interval),
@@ -134,7 +136,7 @@ MemTest::getMasterPort(const std::string &if_name, PortID idx)
 void
 MemTest::completeRequest(PacketPtr pkt, bool functional)
 {
-    Request *req = pkt->req;
+    const RequestPtr &req = pkt->req;
     assert(req->getSize() == 1);
 
     // this address is no longer outstanding
@@ -184,8 +186,6 @@ MemTest::completeRequest(PacketPtr pkt, bool functional)
             numWritesStat++;
         }
     }
-
-    delete pkt->req;
 
     // the packet will delete the data
     delete pkt;
@@ -244,7 +244,7 @@ MemTest::tick()
 
     bool do_functional = (random_mt.random(0, 100) < percentFunctional) &&
         !uncacheable;
-    Request *req = new Request(paddr, 1, flags, masterId);
+    RequestPtr req = std::make_shared<Request>(paddr, 1, flags, masterId);
     req->setContext(id);
 
     outstandingAddrs.insert(paddr);

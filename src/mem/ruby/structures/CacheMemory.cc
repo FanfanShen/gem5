@@ -27,13 +27,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include "mem/ruby/structures/CacheMemory.hh"
+
 #include "base/intmath.hh"
+#include "base/logging.hh"
 #include "debug/RubyCache.hh"
 #include "debug/RubyCacheTrace.hh"
 #include "debug/RubyResourceStalls.hh"
 #include "debug/RubyStats.hh"
 #include "mem/protocol/AccessPermission.hh"
-#include "mem/ruby/structures/CacheMemory.hh"
 #include "mem/ruby/system/RubySystem.hh"
 #include "mem/ruby/system/WeightedLRUPolicy.hh"
 
@@ -636,8 +638,7 @@ CacheMemory::checkResourceAvailable(CacheResourceType res, Addr addr)
             return false;
         }
     } else {
-        assert(false);
-        return true;
+        panic("Unrecognized cache resource type.");
     }
 }
 

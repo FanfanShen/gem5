@@ -56,7 +56,6 @@
 #include "debug/SerialLink.hh"
 #include "params/SerialLink.hh"
 
-
 SerialLink::SerialLinkSlavePort::SerialLinkSlavePort(const std::string& _name,
                                          SerialLink& _serial_link,
                                          SerialLinkMasterPort& _masterPort,
@@ -67,7 +66,8 @@ SerialLink::SerialLinkSlavePort::SerialLinkSlavePort(const std::string& _name,
       masterPort(_masterPort), delay(_delay),
       ranges(_ranges.begin(), _ranges.end()),
       outstandingResponses(0), retryReq(false),
-      respQueueLimit(_resp_limit), sendEvent(*this)
+      respQueueLimit(_resp_limit),
+      sendEvent([this]{ trySendTiming(); }, _name)
 {
 }
 
@@ -77,7 +77,7 @@ SerialLink::SerialLinkMasterPort::SerialLinkMasterPort(const std::string&
                                            Cycles _delay, int _req_limit)
     : MasterPort(_name, &_serial_link), serial_link(_serial_link),
       slavePort(_slavePort), delay(_delay), reqQueueLimit(_req_limit),
-      sendEvent(*this)
+      sendEvent([this]{ trySendTiming(); }, _name)
 {
 }
 
@@ -393,14 +393,14 @@ SerialLink::SerialLinkSlavePort::recvFunctional(PacketPtr pkt)
 
     // check the response queue
     for (auto i = transmitList.begin();  i != transmitList.end(); ++i) {
-        if (pkt->checkFunctional((*i).pkt)) {
+        if (pkt->trySatisfyFunctional((*i).pkt)) {
             pkt->makeResponse();
             return;
         }
     }
 
     // also check the master port's request queue
-    if (masterPort.checkFunctional(pkt)) {
+    if (masterPort.trySatisfyFunctional(pkt)) {
         return;
     }
 
@@ -411,13 +411,13 @@ SerialLink::SerialLinkSlavePort::recvFunctional(PacketPtr pkt)
 }
 
 bool
-SerialLink::SerialLinkMasterPort::checkFunctional(PacketPtr pkt)
+SerialLink::SerialLinkMasterPort::trySatisfyFunctional(PacketPtr pkt)
 {
     bool found = false;
     auto i = transmitList.begin();
 
     while (i != transmitList.end() && !found) {
-        if (pkt->checkFunctional((*i).pkt)) {
+        if (pkt->trySatisfyFunctional((*i).pkt)) {
             pkt->makeResponse();
             found = true;
         }

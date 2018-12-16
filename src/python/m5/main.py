@@ -1,3 +1,15 @@
+# Copyright (c) 2016 ARM Limited
+# All rights reserved.
+#
+# The license below extends only to copyright in the software and shall
+# not be construed as granting a license to any other intellectual
+# property including but not limited to intellectual property relating
+# to a hardware implementation of the functionality of the software
+# licensed hereunder.  You may use the software subject to the license
+# terms below provided that you ensure that this notice is replicated
+# unmodified and in its entirety in all distributions of the software,
+# modified or unmodified, in source code or in binary form.
+#
 # Copyright (c) 2005 The Regents of The University of Michigan
 # All rights reserved.
 #
@@ -26,6 +38,8 @@
 #
 # Authors: Nathan Binkert
 
+from __future__ import print_function
+
 import code
 import datetime
 import os
@@ -48,6 +62,8 @@ def parse_options():
     option = options.add_option
     group = options.set_group
 
+    listener_modes = ( "on", "off", "auto" )
+
     # Help options
     option('-B', "--build-info", action="store_true", default=False,
         help="Show build information")
@@ -67,6 +83,13 @@ def parse_options():
         help="Filename for -r redirection [Default: %default]")
     option("--stderr-file", metavar="FILE", default="simerr",
         help="Filename for -e redirection [Default: %default]")
+    option("--listener-mode", metavar="{on,off,auto}",
+        choices=listener_modes, default="auto",
+        help="Port (e.g., gdb) listener mode (auto: Enable if running " \
+        "interactively) [Default: %default]")
+    option("--listener-loopback-only", action="store_true", default=False,
+        help="Port listeners will only accept connections over the " \
+        "loopback device")
     option('-i', "--interactive", action="store_true", default=False,
         help="Invoke the interactive interpreter after running the script")
     option("--pdb", action="store_true", default=False,
@@ -151,7 +174,7 @@ def interact(scope):
         try:
             import IPython
             from IPython.config.loader import Config
-            from IPython.frontend.terminal.embed import InteractiveShellEmbed
+            from IPython.terminal.embed import InteractiveShellEmbed
 
             cfg = Config()
             cfg.PromptManager.in_template = prompt_in1
@@ -179,7 +202,7 @@ def main(*args):
     import stats
     import trace
 
-    from util import fatal
+    from util import inform, fatal, panic, isInteractive
 
     if len(args) == 0:
         options, arguments = parse_options()
@@ -209,12 +232,12 @@ def main(*args):
 
     # Print redirection notices here before doing any redirection
     if options.redirect_stdout and not options.redirect_stderr:
-        print "Redirecting stdout and stderr to", stdout_file
+        print("Redirecting stdout and stderr to", stdout_file)
     else:
         if options.redirect_stdout:
-            print "Redirecting stdout to", stdout_file
+            print("Redirecting stdout to", stdout_file)
         if options.redirect_stderr:
-            print "Redirecting stderr to", stderr_file
+            print("Redirecting stderr to", stderr_file)
 
     # Now redirect stdout/stderr as desired
     if options.redirect_stdout:
@@ -231,28 +254,28 @@ def main(*args):
 
     if options.build_info:
         done = True
-        print 'Build information:'
-        print
-        print 'compiled %s' % defines.compileDate;
-        print 'build options:'
+        print('Build information:')
+        print()
+        print('compiled %s' % defines.compileDate)
+        print('build options:')
         keys = defines.buildEnv.keys()
         keys.sort()
         for key in keys:
             val = defines.buildEnv[key]
-            print '    %s = %s' % (key, val)
-        print
+            print('    %s = %s' % (key, val))
+        print()
 
     if options.copyright:
         done = True
-        print info.COPYING
-        print
+        print(info.COPYING)
+        print()
 
     if options.readme:
         done = True
-        print 'Readme:'
-        print
-        print info.README
-        print
+        print('Readme:')
+        print()
+        print(info.README)
+        print()
 
     if options.debug_help:
         done = True
@@ -262,23 +285,23 @@ def main(*args):
     if options.list_sim_objects:
         import SimObject
         done = True
-        print "SimObjects:"
+        print("SimObjects:")
         objects = SimObject.allClasses.keys()
         objects.sort()
         for name in objects:
             obj = SimObject.allClasses[name]
-            print "    %s" % obj
+            print("    %s" % obj)
             params = obj._params.keys()
             params.sort()
             for pname in params:
                 param = obj._params[pname]
                 default = getattr(param, 'default', '')
-                print "        %s" % pname
+                print("        %s" % pname)
                 if default:
-                    print "            default: %s" % default
-                print "            desc: %s" % param.desc
-                print
-            print
+                    print("            default: %s" % default)
+                print("            desc: %s" % param.desc)
+                print()
+            print()
 
     if done:
         sys.exit(0)
@@ -289,26 +312,26 @@ def main(*args):
 
     verbose = options.verbose - options.quiet
     if verbose >= 0:
-        print "gem5 Simulator System.  http://gem5.org"
-        print brief_copyright
-        print
+        print("gem5 Simulator System.  http://gem5.org")
+        print(brief_copyright)
+        print()
 
-        print "gem5 compiled %s" % defines.compileDate;
+        print("gem5 compiled %s" % defines.compileDate)
 
-        print "gem5 started %s" % \
-            datetime.datetime.now().strftime("%b %e %Y %X")
-        print "gem5 executing on %s, pid %d" % \
-            (socket.gethostname(), os.getpid())
+        print("gem5 started %s" %
+              datetime.datetime.now().strftime("%b %e %Y %X"))
+        print("gem5 executing on %s, pid %d" %
+              (socket.gethostname(), os.getpid()))
 
         # in Python 3 pipes.quote() is moved to shlex.quote()
         import pipes
-        print "command line:", " ".join(map(pipes.quote, sys.argv))
-        print
+        print("command line:", " ".join(map(pipes.quote, sys.argv)))
+        print()
 
     # check to make sure we can find the listed script
     if not arguments or not os.path.isfile(arguments[0]):
         if arguments and not os.path.isfile(arguments[0]):
-            print "Script %s not found" % arguments[0]
+            print("Script %s not found" % arguments[0])
 
         options.usage(2)
 
@@ -319,7 +342,23 @@ def main(*args):
     sys.path[0:0] = options.path
 
     # set stats options
-    stats.initText(options.stats_file)
+    stats.addStatVisitor(options.stats_file)
+
+    # Disable listeners unless running interactively or explicitly
+    # enabled
+    if options.listener_mode == "off":
+        m5.disableAllListeners()
+    elif options.listener_mode == "auto":
+        if not isInteractive():
+            inform("Standard input is not a terminal, disabling listeners.")
+            m5.disableAllListeners()
+    elif options.listener_mode == "on":
+        pass
+    else:
+        panic("Unhandled listener mode: %s" % options.listener_mode)
+
+    if options.listener_loopback_only:
+        m5.listenersLoopbackOnly()
 
     # set debugging options
     debug.setRemoteGDBPort(options.remote_gdb_port)
@@ -338,7 +377,7 @@ def main(*args):
                 off = True
 
             if flag not in debug.flags:
-                print >>sys.stderr, "invalid debug flag '%s'" % flag
+                print("invalid debug flag '%s'" % flag, file=sys.stderr)
                 sys.exit(1)
 
             if off:
@@ -373,10 +412,6 @@ def main(*args):
     scope = { '__file__' : filename,
               '__name__' : '__m5_main__' }
 
-    # we want readline if we're doing anything interactive
-    if options.interactive or options.pdb:
-        exec "import readline" in scope
-
     # if pdb was requested, execfile the thing under pdb, otherwise,
     # just do the execfile normally
     if options.pdb:
@@ -387,11 +422,11 @@ def main(*args):
         try:
             pdb.run(filecode, scope)
         except SystemExit:
-            print "The program exited via sys.exit(). Exit status: ",
-            print sys.exc_info()[1]
+            print("The program exited via sys.exit(). Exit status: ", end=' ')
+            print(sys.exc_info()[1])
         except:
             traceback.print_exc()
-            print "Uncaught exception. Entering post mortem debugging"
+            print("Uncaught exception. Entering post mortem debugging")
             t = sys.exc_info()[2]
             while t.tb_next is not None:
                 t = t.tb_next
@@ -408,9 +443,9 @@ if __name__ == '__main__':
 
     options, arguments = parse_options()
 
-    print 'opts:'
+    print('opts:')
     pprint(options, indent=4)
-    print
+    print()
 
-    print 'args:'
+    print('args:')
     pprint(arguments, indent=4)

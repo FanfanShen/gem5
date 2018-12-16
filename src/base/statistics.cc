@@ -28,6 +28,8 @@
  * Authors: Nathan Binkert
  */
 
+#include "base/statistics.hh"
+
 #include <fstream>
 #include <iomanip>
 #include <list>
@@ -38,8 +40,7 @@
 #include "base/cprintf.hh"
 #include "base/debug.hh"
 #include "base/hostinfo.hh"
-#include "base/misc.hh"
-#include "base/statistics.hh"
+#include "base/logging.hh"
 #include "base/str.hh"
 #include "base/time.hh"
 #include "base/trace.hh"
@@ -180,8 +181,8 @@ Info::setName(const string &name)
     bool result = p.second;
 
     if (!result) {
-        // using other->name instead of just name to avoid a compiler
-        // warning.  They should be the same.
+      // using other->name instead of just name to avoid a compiler
+      // warning.  They should be the same.
         panic("same statistic name used twice! name=%s\n", other->name);
     }
 
@@ -221,7 +222,9 @@ Info::baseCheck() const
 #ifdef DEBUG
         cprintf("this is stat number %d\n", id);
 #endif
-        panic("Not all stats have been initialized");
+        panic("Not all stats have been initialized.\n"
+              "You may need to add <ParentClass>::regStats() to a"
+              " new SimObject's regStats() function.");
         return false;
     }
 

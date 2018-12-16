@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 ARM Limited
+ * Copyright (c) 2014, 2016 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -49,8 +49,10 @@
 #include "base/types.hh"
 #include "config/the_isa.hh"
 #include "cpu/base.hh"
+#include "cpu/reg_class.hh"
 #include "cpu/static_inst_fwd.hh"
 #include "cpu/translation.hh"
+#include "mem/request.hh"
 
 /**
  * The ExecContext is an abstract base class the provides the
@@ -77,6 +79,8 @@ class ExecContext {
     typedef TheISA::MiscReg MiscReg;
 
     typedef TheISA::CCReg CCReg;
+    using VecRegContainer = TheISA::VecRegContainer;
+    using VecElem = TheISA::VecElem;
 
   public:
     /**
@@ -117,6 +121,63 @@ class ExecContext {
     virtual void setFloatRegOperandBits(const StaticInst *si,
                                         int idx, FloatRegBits val) = 0;
 
+    /** @} */
+
+    /** Vector Register Interfaces. */
+    /** @{ */
+    /** Reads source vector register operand. */
+    virtual const VecRegContainer&
+    readVecRegOperand(const StaticInst *si, int idx) const = 0;
+
+    /** Gets destination vector register operand for modification. */
+    virtual VecRegContainer&
+    getWritableVecRegOperand(const StaticInst *si, int idx) = 0;
+
+    /** Sets a destination vector register operand to a value. */
+    virtual void
+    setVecRegOperand(const StaticInst *si, int idx,
+                     const VecRegContainer& val) = 0;
+    /** @} */
+
+    /** Vector Register Lane Interfaces. */
+    /** @{ */
+    /** Reads source vector 8bit operand. */
+    virtual ConstVecLane8
+    readVec8BitLaneOperand(const StaticInst *si, int idx) const = 0;
+
+    /** Reads source vector 16bit operand. */
+    virtual ConstVecLane16
+    readVec16BitLaneOperand(const StaticInst *si, int idx) const = 0;
+
+    /** Reads source vector 32bit operand. */
+    virtual ConstVecLane32
+    readVec32BitLaneOperand(const StaticInst *si, int idx) const = 0;
+
+    /** Reads source vector 64bit operand. */
+    virtual ConstVecLane64
+    readVec64BitLaneOperand(const StaticInst *si, int idx) const = 0;
+
+    /** Write a lane of the destination vector operand. */
+    /** @{ */
+    virtual void setVecLaneOperand(const StaticInst *si, int idx,
+            const LaneData<LaneSize::Byte>& val) = 0;
+    virtual void setVecLaneOperand(const StaticInst *si, int idx,
+            const LaneData<LaneSize::TwoByte>& val) = 0;
+    virtual void setVecLaneOperand(const StaticInst *si, int idx,
+            const LaneData<LaneSize::FourByte>& val) = 0;
+    virtual void setVecLaneOperand(const StaticInst *si, int idx,
+            const LaneData<LaneSize::EightByte>& val) = 0;
+    /** @} */
+
+    /** Vector Elem Interfaces. */
+    /** @{ */
+    /** Reads an element of a vector register. */
+    virtual VecElem readVecElemOperand(const StaticInst *si,
+                                        int idx) const = 0;
+
+    /** Sets a vector register to a value. */
+    virtual void setVecElemOperand(const StaticInst *si, int idx,
+                                   const VecElem val) = 0;
     /** @} */
 
     /**
@@ -162,19 +223,6 @@ class ExecContext {
      * @name Memory Interface
      */
     /**
-     * Record the effective address of the instruction.
-     *
-     * @note Only valid for memory ops.
-     */
-    virtual void setEA(Addr EA) = 0;
-    /**
-     * Get the effective address of the instruction.
-     *
-     * @note Only valid for memory ops.
-     */
-    virtual Addr getEA() const = 0;
-
-    /**
      * Perform an atomic memory read operation.  Must be overridden
      * for exec contexts that support atomic memory mode.  Not pure
      * virtual since exec contexts that only support timing memory
@@ -182,7 +230,7 @@ class ExecContext {
      * should never be called).
      */
     virtual Fault readMem(Addr addr, uint8_t *data, unsigned int size,
-                          unsigned int flags)
+                          Request::Flags flags)
     {
         panic("ExecContext::readMem() should be overridden\n");
     }
@@ -195,7 +243,7 @@ class ExecContext {
      * should never be called).
      */
     virtual Fault initiateMemRead(Addr addr, unsigned int size,
-                                  unsigned int flags)
+                                  Request::Flags flags)
     {
         panic("ExecContext::initiateMemRead() should be overridden\n");
     }
@@ -205,7 +253,7 @@ class ExecContext {
      * For timing-mode contexts, initiate a timing memory write operation.
      */
     virtual Fault writeMem(uint8_t *data, unsigned int size, Addr addr,
-                           unsigned int flags, uint64_t *res) = 0;
+                           Request::Flags flags, uint64_t *res) = 0;
 
     /**
      * Sets the number of consecutive store conditional failures.
@@ -227,7 +275,7 @@ class ExecContext {
     /**
      * Executes a syscall specified by the callnum.
      */
-    virtual void syscall(int64_t callnum) = 0;
+    virtual void syscall(int64_t callnum, Fault *fault) = 0;
 
     /** @} */
 
@@ -258,7 +306,7 @@ class ExecContext {
      * @name ARM-Specific Interfaces
      */
 
-    virtual bool readPredicate() = 0;
+    virtual bool readPredicate() const = 0;
     virtual void setPredicate(bool val) = 0;
 
     /** @} */
@@ -285,9 +333,9 @@ class ExecContext {
      */
 
 #if THE_ISA == MIPS_ISA
-    virtual MiscReg readRegOtherThread(int regIdx,
+    virtual MiscReg readRegOtherThread(const RegId& reg,
                                        ThreadID tid = InvalidThreadID) = 0;
-    virtual void setRegOtherThread(int regIdx, MiscReg val,
+    virtual void setRegOtherThread(const RegId& reg, MiscReg val,
                                    ThreadID tid = InvalidThreadID) = 0;
 #endif
 

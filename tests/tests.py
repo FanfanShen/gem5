@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 #
 # Copyright (c) 2016 ARM Limited
 # All rights reserved
@@ -36,6 +36,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 # Authors: Andreas Sandberg
+
+from __future__ import print_function
 
 import argparse
 import sys
@@ -126,7 +128,7 @@ def _list_tests(args):
         for test in get_tests(isa, categories=categories, modes=modes,
                               ruby_protocol=args.ruby_protocol,
                               gpu_isa=args.gpu_isa):
-            print "/".join(test)
+            print("/".join(test))
     sys.exit(0)
 
 def _run_tests_args(subparsers):
@@ -174,6 +176,11 @@ def _run_tests_args(subparsers):
     _add_format_args(parser)
 
 def _run_tests(args):
+    if not os.path.isfile(args.gem5) or not os.access(args.gem5, os.X_OK):
+        print("gem5 binary '%s' not an executable file" % args.gem5,
+            file=sys.stderr)
+        sys.exit(2)
+
     formatter = _create_formatter(args)
 
     out_base = os.path.abspath(args.directory)
@@ -190,9 +197,9 @@ def _run_tests(args):
                         skip_diff_out=args.skip_diff_out))
 
     all_results = []
-    print "Running %i tests" % len(tests)
+    print("Running %i tests" % len(tests))
     for testno, test in enumerate(tests):
-        print "%i: Running '%s'..." % (testno, test)
+        print("%i: Running '%s'..." % (testno, test))
 
         all_results.append(test.run())
 
@@ -237,8 +244,18 @@ def _show_args(subparsers):
                         help="Pickled test results")
 
 def _show(args):
+    def _load(f):
+        # Load the pickled status file, sometimes e.g., when a
+        # regression is still running the status file might be
+        # incomplete.
+        try:
+            return pickle.load(f)
+        except EOFError:
+            print('Could not read file %s' % f.name, file=sys.stderr)
+            return []
+
     formatter = _create_formatter(args)
-    suites = sum([ pickle.load(f) for f in args.result ], [])
+    suites = sum([ _load(f) for f in args.result ], [])
     formatter.dump_suites(suites)
 
 def _test_args(subparsers):
@@ -265,13 +282,15 @@ def _test_args(subparsers):
         summary formatter, such a test would show up as 'CHANGED'.
         """)
 
-    _add_format_args(parser)
-
     parser.add_argument("result", type=argparse.FileType("rb"), nargs="*",
                         help="Pickled test results")
 
 def _test(args):
-    suites = sum([ pickle.load(f) for f in args.result ], [])
+    try:
+        suites = sum([ pickle.load(f) for f in args.result ], [])
+    except EOFError:
+        print('Could not read all files', file=sys.stderr)
+        sys.exit(2)
 
     if all(s for s in suites):
         sys.exit(0)

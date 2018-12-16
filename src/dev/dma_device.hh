@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013, 2015 ARM Limited
+ * Copyright (c) 2012-2013, 2015, 2017 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -123,7 +123,7 @@ class DmaPort : public MasterPort, public Drainable
     std::deque<PacketPtr> transmitList;
 
     /** Event used to schedule a future sending from the transmit list. */
-    EventWrapper<DmaPort, &DmaPort::sendDma> sendEvent;
+    EventFunctionWrapper sendEvent;
 
     /** Number of outstanding packets the dma port has. */
     uint32_t pendingCount;
@@ -182,6 +182,76 @@ class DmaDevice : public PioDevice
     BaseMasterPort &getMasterPort(const std::string &if_name,
                                   PortID idx = InvalidPortID) override;
 
+};
+
+/**
+ * DMA callback class.
+ *
+ * Allows one to register for a callback event after a sequence of (potentially
+ * non-contiguous) DMA transfers on a DmaPort completes.  Derived classes must
+ * implement the process() method and use getChunkEvent() to allocate a
+ * callback event for each participating DMA.
+ */
+class DmaCallback : public Drainable
+{
+  public:
+    virtual const std::string name() const { return "DmaCallback"; }
+
+    /**
+     * DmaPort ensures that all oustanding DMA accesses have completed before
+     * it finishes draining.  However, DmaChunkEvents scheduled with a delay
+     * might still be sitting on the event queue.  Therefore, draining is not
+     * complete until count is 0, which ensures that all outstanding
+     * DmaChunkEvents associated with this DmaCallback have fired.
+     */
+    DrainState drain() override
+    {
+        return count ? DrainState::Draining : DrainState::Drained;
+    }
+
+  protected:
+    int count;
+
+    DmaCallback()
+        : count(0)
+    { }
+
+    virtual ~DmaCallback() { }
+
+    /**
+     * Callback function invoked on completion of all chunks.
+     */
+    virtual void process() = 0;
+
+  private:
+    /**
+     * Called by DMA engine completion event on each chunk completion.
+     * Since the object may delete itself here, callers should not use
+     * the object pointer after calling this function.
+     */
+    void chunkComplete()
+    {
+        if (--count == 0) {
+            process();
+            // Need to notify DrainManager that this object is finished
+            // draining, even though it is immediately deleted.
+            signalDrainDone();
+            delete this;
+        }
+    }
+
+  public:
+
+    /**
+     * Request a chunk event.  Chunks events should be provided to each DMA
+     * request that wishes to participate in this DmaCallback.
+     */
+    Event *getChunkEvent()
+    {
+        ++count;
+        return new EventFunctionWrapper([this]{ chunkComplete(); }, name(),
+                                        true);
+    }
 };
 
 /**
@@ -409,8 +479,14 @@ class DmaReadFifo : public Drainable, public Serializable
     /** Handle pending requests that have been flagged as done. */
     void handlePending();
 
-    /** Try to issue new DMA requests */
+    /** Try to issue new DMA requests or bypass DMA requests*/
     void resumeFill();
+
+    /** Try to issue new DMA requests during normal execution*/
+    void resumeFillTiming();
+
+    /** Try to bypass DMA requests in KVM execution mode */
+    void resumeFillFunctional();
 
   private: // Internal state
     Fifo<uint8_t> buffer;

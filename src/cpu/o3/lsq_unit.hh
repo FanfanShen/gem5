@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014 ARM Limited
+ * Copyright (c) 2012-2014,2017 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -86,12 +86,17 @@ class LSQUnit {
 
   public:
     /** Constructs an LSQ unit. init() must be called prior to use. */
-    LSQUnit();
+    LSQUnit(uint32_t lqEntries, uint32_t sqEntries);
+
+    /** We cannot copy LSQUnit because it has stats for which copy
+     * contructor is deleted explicitly. However, STL vector requires
+     * a valid copy constructor for the base type at compile time.
+     */
+    LSQUnit(const LSQUnit &l) { panic("LSQUnit is not copy-able"); }
 
     /** Initializes the LSQ unit with the specified number of entries. */
     void init(O3CPU *cpu_ptr, IEW *iew_ptr, DerivO3CPUParams *params,
-            LSQ *lsq_ptr, unsigned maxLQEntries, unsigned maxSQEntries,
-            unsigned id);
+            LSQ *lsq_ptr, unsigned id);
 
     /** Returns the name of the LSQ unit. */
     std::string name() const;
@@ -113,14 +118,14 @@ class LSQUnit {
      * @todo: Move the number of used ports up to the LSQ level so it can
      * be shared by all LSQ units.
      */
-    void tick() { usedPorts = 0; }
+    void tick() { usedStorePorts = 0; }
 
     /** Inserts an instruction. */
-    void insert(DynInstPtr &inst);
+    void insert(const DynInstPtr &inst);
     /** Inserts a load instruction. */
-    void insertLoad(DynInstPtr &load_inst);
+    void insertLoad(const DynInstPtr &load_inst);
     /** Inserts a store instruction. */
-    void insertStore(DynInstPtr &store_inst);
+    void insertStore(const DynInstPtr &store_inst);
 
     /** Check for ordering violations in the LSQ. For a store squash if we
      * ever find a conflicting load. For a load, only squash if we
@@ -128,7 +133,7 @@ class LSQUnit {
      * @param load_idx index to start checking at
      * @param inst the instruction to check
      */
-    Fault checkViolations(int load_idx, DynInstPtr &inst);
+    Fault checkViolations(int load_idx, const DynInstPtr &inst);
 
     /** Check if an incoming invalidate hits in the lsq on a load
      * that might have issued out of order wrt another load beacuse
@@ -137,11 +142,11 @@ class LSQUnit {
     void checkSnoop(PacketPtr pkt);
 
     /** Executes a load instruction. */
-    Fault executeLoad(DynInstPtr &inst);
+    Fault executeLoad(const DynInstPtr &inst);
 
     Fault executeLoad(int lq_idx) { panic("Not implemented"); return NoFault; }
     /** Executes a store instruction. */
-    Fault executeStore(DynInstPtr &inst);
+    Fault executeStore(const DynInstPtr &inst);
 
     /** Commits the head load. */
     void commitLoad();
@@ -233,7 +238,7 @@ class LSQUnit {
     void resetState();
 
     /** Writes back the instruction, sending it to IEW. */
-    void writeback(DynInstPtr &inst, PacketPtr pkt);
+    void writeback(const DynInstPtr &inst, PacketPtr pkt);
 
     /** Writes back a store that couldn't be completed the previous cycle. */
     void writebackPendingStore();
@@ -313,7 +318,8 @@ class LSQUnit {
     class WritebackEvent : public Event {
       public:
         /** Constructs a writeback event. */
-        WritebackEvent(DynInstPtr &_inst, PacketPtr pkt, LSQUnit *lsq_ptr);
+        WritebackEvent(const DynInstPtr &_inst, PacketPtr pkt,
+                LSQUnit *lsq_ptr);
 
         /** Processes the writeback event. */
         void process();
@@ -348,7 +354,7 @@ class LSQUnit {
         }
 
         /** Constructs a store queue entry for a given instruction. */
-        SQEntry(DynInstPtr &_inst)
+        SQEntry(const DynInstPtr &_inst)
             : inst(_inst), req(NULL), sreqLow(NULL), sreqHigh(NULL), size(0),
               isSplit(0), canWB(0), committed(0), completed(0), isAllZeros(0)
         {
@@ -429,11 +435,11 @@ class LSQUnit {
     int storeTail;
 
     /// @todo Consider moving to a more advanced model with write vs read ports
-    /** The number of cache ports available each cycle. */
-    int cachePorts;
+    /** The number of cache ports available each cycle (stores only). */
+    int cacheStorePorts;
 
-    /** The number of used cache ports in this cycle. */
-    int usedPorts;
+    /** The number of used cache ports in this cycle by stores. */
+    int usedStorePorts;
 
     //list<InstSeqNum> mshrSeqNums;
 
@@ -510,11 +516,13 @@ class LSQUnit {
 
   public:
     /** Executes the load at the given index. */
-    Fault read(Request *req, Request *sreqLow, Request *sreqHigh,
+    Fault read(const RequestPtr &req,
+               RequestPtr &sreqLow, RequestPtr &sreqHigh,
                int load_idx);
 
     /** Executes the store at the given index. */
-    Fault write(Request *req, Request *sreqLow, Request *sreqHigh,
+    Fault write(const RequestPtr &req,
+                const RequestPtr &sreqLow, const RequestPtr &sreqHigh,
                 uint8_t *data, int store_idx);
 
     /** Returns the index of the head load instruction. */
@@ -549,7 +557,8 @@ class LSQUnit {
 
 template <class Impl>
 Fault
-LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
+LSQUnit<Impl>::read(const RequestPtr &req,
+                    RequestPtr &sreqLow, RequestPtr &sreqHigh,
                     int load_idx)
 {
     DynInstPtr load_inst = loadQueue[load_idx];
@@ -569,14 +578,6 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
         DPRINTF(LSQUnit, "Strictly ordered load [sn:%lli] PC %s\n",
                 load_inst->seqNum, load_inst->pcState());
 
-        // Must delete request now that it wasn't handed off to
-        // memory.  This is quite ugly.  @todo: Figure out the proper
-        // place to really handle request deletes.
-        delete req;
-        if (TheISA::HasUnalignedMemAcc && sreqLow) {
-            delete sreqLow;
-            delete sreqHigh;
-        }
         return std::make_shared<GenericISA::M5PanicFault>(
             "Strictly ordered load [sn:%llx] PC %s\n",
             load_inst->seqNum, load_inst->pcState());
@@ -610,8 +611,8 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
         Cycles delay(0);
         PacketPtr data_pkt = new Packet(req, MemCmd::ReadReq);
 
+        data_pkt->dataStatic(load_inst->memData);
         if (!TheISA::HasUnalignedMemAcc || !sreqLow) {
-            data_pkt->dataStatic(load_inst->memData);
             delay = TheISA::handleIprRead(thread, data_pkt);
         } else {
             assert(sreqLow->isMmappedIpr() && sreqHigh->isMmappedIpr());
@@ -626,8 +627,6 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
             if (delay2 > delay)
                 delay = delay2;
 
-            delete sreqLow;
-            delete sreqHigh;
             delete fst_data_pkt;
             delete snd_data_pkt;
         }
@@ -650,10 +649,14 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
 
         store_size = storeQueue[store_idx].size;
 
-        if (store_size == 0)
+        if (!store_size || storeQueue[store_idx].inst->strictlyOrdered() ||
+            (storeQueue[store_idx].req &&
+             storeQueue[store_idx].req->isCacheMaintenance())) {
+            // Cache maintenance instructions go down via the store
+            // path but they carry no data and they shouldn't be
+            // considered for forwarding
             continue;
-        else if (storeQueue[store_idx].inst->strictlyOrdered())
-            continue;
+        }
 
         assert(storeQueue[store_idx].inst->effAddrValid());
 
@@ -671,8 +674,9 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
             (req->getVaddr() + req->getSize()) >
             storeQueue[store_idx].inst->effAddr;
 
-        // If the store's data has all of the data needed, we can forward.
-        if ((store_has_lower_limit && store_has_upper_limit)) {
+        // If the store's data has all of the data needed and the load isn't
+        // LLSC, we can forward.
+        if (store_has_lower_limit && store_has_upper_limit && !req->isLLSC()) {
             // Get shift amount for offset into the store's data.
             int shift_amt = req->getVaddr() - storeQueue[store_idx].inst->effAddr;
 
@@ -699,19 +703,20 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
             // @todo: Need to make this a parameter.
             cpu->schedule(wb, curTick());
 
-            // Don't need to do anything special for split loads.
-            if (TheISA::HasUnalignedMemAcc && sreqLow) {
-                delete sreqLow;
-                delete sreqHigh;
-            }
-
             ++lsqForwLoads;
             return NoFault;
-        } else if ((store_has_lower_limit && lower_load_has_store_part) ||
-                   (store_has_upper_limit && upper_load_has_store_part) ||
-                   (lower_load_has_store_part && upper_load_has_store_part)) {
+        } else if (
+                (!req->isLLSC() &&
+                 ((store_has_lower_limit && lower_load_has_store_part) ||
+                  (store_has_upper_limit && upper_load_has_store_part) ||
+                  (lower_load_has_store_part && upper_load_has_store_part))) ||
+                (req->isLLSC() &&
+                 ((store_has_lower_limit || upper_load_has_store_part) &&
+                  (store_has_upper_limit || lower_load_has_store_part)))) {
             // This is the partial store-load forwarding case where a store
-            // has only part of the load's data.
+            // has only part of the load's data and the load isn't LLSC or
+            // the load is LLSC and the store has all or part of the load's
+            // data
 
             // If it's already been written back, then don't worry about
             // stalling on it.
@@ -743,15 +748,6 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
                     "Store idx %i to load addr %#x\n",
                     store_idx, req->getVaddr());
 
-            // Must delete request now that it wasn't handed off to
-            // memory.  This is quite ugly.  @todo: Figure out the
-            // proper place to really handle request deletes.
-            delete req;
-            if (TheISA::HasUnalignedMemAcc && sreqLow) {
-                delete sreqLow;
-                delete sreqHigh;
-            }
-
             return NoFault;
         }
     }
@@ -764,8 +760,6 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
     if (!load_inst->memData) {
         load_inst->memData = new uint8_t[req->getSize()];
     }
-
-    ++usedPorts;
 
     // if we the cache is not blocked, do cache access
     bool completedFirst = false;
@@ -800,6 +794,11 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
         state->mainPkt = data_pkt;
     }
 
+    // For now, load throughput is constrained by the number of
+    // load FUs only, and loads do not consume a cache port (only
+    // stores do).
+    // @todo We should account for cache port contention
+    // and arbitrate between loads and stores.
     bool successful_load = true;
     if (!dcachePort->sendTimingReq(fst_data_pkt)) {
         successful_load = false;
@@ -811,7 +810,8 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
         // load will be squashed, so indicate this to the state object.
         // The first packet will return in completeDataAccess and be
         // handled there.
-        ++usedPorts;
+        // @todo We should also account for cache port contention
+        // here.
         if (!dcachePort->sendTimingReq(snd_data_pkt)) {
             // The main packet will be deleted in completeDataAccess.
             state->complete();
@@ -827,7 +827,6 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
         if (!sreqLow) {
             // Packet wasn't split, just delete main packet info
             delete state;
-            delete req;
             delete data_pkt;
         }
 
@@ -835,22 +834,17 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
             if (!completedFirst) {
                 // Split packet, but first failed.  Delete all state.
                 delete state;
-                delete req;
                 delete data_pkt;
                 delete fst_data_pkt;
                 delete snd_data_pkt;
-                delete sreqLow;
-                delete sreqHigh;
-                sreqLow = NULL;
-                sreqHigh = NULL;
+                sreqLow.reset();
+                sreqHigh.reset();
             } else {
                 // Can't delete main packet data or state because first packet
                 // was sent to the memory system
                 delete data_pkt;
-                delete req;
-                delete sreqHigh;
                 delete snd_data_pkt;
-                sreqHigh = NULL;
+                sreqHigh.reset();
             }
         }
 
@@ -867,7 +861,8 @@ LSQUnit<Impl>::read(Request *req, Request *sreqLow, Request *sreqHigh,
 
 template <class Impl>
 Fault
-LSQUnit<Impl>::write(Request *req, Request *sreqLow, Request *sreqHigh,
+LSQUnit<Impl>::write(const RequestPtr &req,
+                     const RequestPtr &sreqLow, const RequestPtr &sreqHigh,
                      uint8_t *data, int store_idx)
 {
     assert(storeQueue[store_idx].inst);
@@ -882,9 +877,9 @@ LSQUnit<Impl>::write(Request *req, Request *sreqLow, Request *sreqHigh,
     storeQueue[store_idx].sreqHigh = sreqHigh;
     unsigned size = req->getSize();
     storeQueue[store_idx].size = size;
-    storeQueue[store_idx].isAllZeros = req->getFlags() & Request::CACHE_BLOCK_ZERO;
-    assert(size <= sizeof(storeQueue[store_idx].data) ||
-            (req->getFlags() & Request::CACHE_BLOCK_ZERO));
+    bool store_no_data = req->getFlags() & Request::STORE_NO_DATA;
+    storeQueue[store_idx].isAllZeros = store_no_data;
+    assert(size <= sizeof(storeQueue[store_idx].data) || store_no_data);
 
     // Split stores can only occur in ISAs with unaligned memory accesses.  If
     // a store request has been split, sreqLow and sreqHigh will be non-null.
@@ -892,7 +887,8 @@ LSQUnit<Impl>::write(Request *req, Request *sreqLow, Request *sreqHigh,
         storeQueue[store_idx].isSplit = true;
     }
 
-    if (!(req->getFlags() & Request::CACHE_BLOCK_ZERO))
+    if (!(req->getFlags() & Request::CACHE_BLOCK_ZERO) && \
+        !req->isCacheMaintenance())
         memcpy(storeQueue[store_idx].data, data, size);
 
     // This function only writes the data to the store queue, so no fault

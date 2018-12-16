@@ -34,19 +34,13 @@ from m5.defines import buildEnv
 from m5.util import addToPath
 import os, optparse, sys
 
-# Get paths we might need.  It's expected this file is in m5/configs/example.
-config_path = os.path.dirname(os.path.abspath(__file__))
-config_root = os.path.dirname(config_path)
-m5_root = os.path.dirname(config_root)
-addToPath(config_root+'/configs/common')
-addToPath(config_root+'/configs/ruby')
-addToPath(config_root+'/configs/topologies')
+m5.util.addToPath('../configs/')
 
-import Ruby
-import Options
+from ruby import Ruby
+from common import Options
 
 parser = optparse.OptionParser()
-Options.addCommonOptions(parser)
+Options.addNoISAOptions(parser)
 
 # Add the ruby specific and protocol specific options
 Ruby.define_options(parser)

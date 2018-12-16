@@ -46,14 +46,13 @@
  * Port object definitions.
  */
 
+#include "mem/fs_translating_port_proxy.hh"
+
 #include "arch/vtophys.hh"
 #include "base/chunk_generator.hh"
 #include "cpu/base.hh"
 #include "cpu/thread_context.hh"
-#include "mem/fs_translating_port_proxy.hh"
 #include "sim/system.hh"
-
-using namespace TheISA;
 
 FSTranslatingPortProxy::FSTranslatingPortProxy(ThreadContext *tc)
     : PortProxy(tc->getCpuPtr()->getDataPort(),
@@ -83,7 +82,7 @@ FSTranslatingPortProxy::readBlob(Addr addr, uint8_t *p, int size) const
         else
             paddr = TheISA::vtophys(gen.addr());
 
-        PortProxy::readBlob(paddr, p, gen.size());
+        PortProxy::readBlobPhys(paddr, 0, p, gen.size());
         p += gen.size();
     }
 }
@@ -100,7 +99,7 @@ FSTranslatingPortProxy::writeBlob(Addr addr, const uint8_t *p, int size) const
         else
             paddr = TheISA::vtophys(gen.addr());
 
-        PortProxy::writeBlob(paddr, p, gen.size());
+        PortProxy::writeBlobPhys(paddr, 0, p, gen.size());
         p += gen.size();
     }
 }
@@ -117,7 +116,7 @@ FSTranslatingPortProxy::memsetBlob(Addr address, uint8_t v, int size) const
         else
             paddr = TheISA::vtophys(gen.addr());
 
-        PortProxy::memsetBlob(paddr, v, gen.size());
+        PortProxy::memsetBlobPhys(paddr, 0, v, gen.size());
     }
 }
 

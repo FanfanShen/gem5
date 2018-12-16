@@ -43,8 +43,10 @@
 #include <string>
 #include <vector>
 
-#include "sim/process.hh"
+#include "arch/x86/pagetable.hh"
 #include "mem/multi_level_page_table.hh"
+#include "sim/aux_vector.hh"
+#include "sim/process.hh"
 
 class SyscallDesc;
 
@@ -55,21 +57,28 @@ namespace X86ISA
         M5_AT_SYSINFO_EHDR = 33
     };
 
-    class X86LiveProcess : public LiveProcess
+    class X86Process : public Process
     {
       protected:
+        /**
+         * Declaration of architectural page table for x86.
+         *
+         * These page tables are stored in system memory and respect x86
+         * specification.
+         */
+
         Addr _gdtStart;
         Addr _gdtSize;
 
         SyscallDesc *syscallDescs;
         const int numSyscallDescs;
 
-        X86LiveProcess(LiveProcessParams * params, ObjectFile *objFile,
-                SyscallDesc *_syscallDescs, int _numSyscallDescs);
+        X86Process(ProcessParams * params, ObjectFile *objFile,
+                   SyscallDesc *_syscallDescs, int _numSyscallDescs);
 
         template<class IntType>
         void argsInit(int pageSize,
-                std::vector<AuxVector<IntType> > extraAuxvs);
+                      std::vector<AuxVector<IntType> > extraAuxvs);
 
       public:
         Addr gdtStart()
@@ -78,16 +87,32 @@ namespace X86ISA
         Addr gdtSize()
         { return _gdtSize; }
 
-        SyscallDesc* getDesc(int callnum);
+        SyscallDesc* getDesc(int callnum) override;
 
-        void setSyscallReturn(ThreadContext *tc, SyscallReturn return_value);
+        void setSyscallReturn(ThreadContext *tc,
+                              SyscallReturn return_value) override;
+        void clone(ThreadContext *old_tc, ThreadContext *new_tc,
+                   Process *process, TheISA::IntReg flags) override;
+
+        X86Process &
+        operator=(const X86Process &in)
+        {
+            if (this == &in)
+                return *this;
+
+            _gdtStart = in._gdtStart;
+            _gdtSize = in._gdtSize;
+            syscallDescs = in.syscallDescs;
+
+            return *this;
+        }
     };
 
-    class X86_64LiveProcess : public X86LiveProcess
+    class X86_64Process : public X86Process
     {
       protected:
-        X86_64LiveProcess(LiveProcessParams *params, ObjectFile *objFile,
-                SyscallDesc *_syscallDescs, int _numSyscallDescs);
+        X86_64Process(ProcessParams *params, ObjectFile *objFile,
+                      SyscallDesc *_syscallDescs, int _numSyscallDescs);
 
         class VSyscallPage
         {
@@ -96,24 +121,41 @@ namespace X86ISA
             Addr size;
             Addr vtimeOffset;
             Addr vgettimeofdayOffset;
+
+            VSyscallPage &
+            operator=(const VSyscallPage &in)
+            {
+                if (this == &in)
+                    return *this;
+
+                base = in.base;
+                size = in.size;
+                vtimeOffset = in.vtimeOffset;
+                vgettimeofdayOffset = in.vgettimeofdayOffset;
+
+                return *this;
+            }
         };
         VSyscallPage vsyscallPage;
 
       public:
-        void argsInit(int intSize, int pageSize);
-        void initState();
+        void argsInit(int pageSize);
+        void initState() override;
 
-        X86ISA::IntReg getSyscallArg(ThreadContext *tc, int &i);
+        X86ISA::IntReg getSyscallArg(ThreadContext *tc, int &i) override;
         /// Explicitly import the otherwise hidden getSyscallArg
-        using LiveProcess::getSyscallArg;
-        void setSyscallArg(ThreadContext *tc, int i, X86ISA::IntReg val);
+        using Process::getSyscallArg;
+        void setSyscallArg(ThreadContext *tc, int i,
+                           X86ISA::IntReg val) override;
+        void clone(ThreadContext *old_tc, ThreadContext *new_tc,
+                   Process *process, TheISA::IntReg flags) override;
     };
 
-    class I386LiveProcess : public X86LiveProcess
+    class I386Process : public X86Process
     {
       protected:
-        I386LiveProcess(LiveProcessParams *params, ObjectFile *objFile,
-                SyscallDesc *_syscallDescs, int _numSyscallDescs);
+        I386Process(ProcessParams *params, ObjectFile *objFile,
+                    SyscallDesc *_syscallDescs, int _numSyscallDescs);
 
         class VSyscallPage
         {
@@ -122,25 +164,38 @@ namespace X86ISA
             Addr size;
             Addr vsyscallOffset;
             Addr vsysexitOffset;
+
+            VSyscallPage &
+            operator=(const VSyscallPage &in)
+            {
+                if (this == &in)
+                    return *this;
+
+                base = in.base;
+                size = in.size;
+                vsyscallOffset = in.vsyscallOffset;
+                vsysexitOffset = in.vsysexitOffset;
+
+                return *this;
+            }
         };
         VSyscallPage vsyscallPage;
 
       public:
-        void argsInit(int intSize, int pageSize);
-        void initState();
+        void argsInit(int pageSize);
+        void initState() override;
 
-        void syscall(int64_t callnum, ThreadContext *tc);
-        X86ISA::IntReg getSyscallArg(ThreadContext *tc, int &i);
-        X86ISA::IntReg getSyscallArg(ThreadContext *tc, int &i, int width);
-        void setSyscallArg(ThreadContext *tc, int i, X86ISA::IntReg val);
+        void syscall(int64_t callnum, ThreadContext *tc,
+                     Fault *fault) override;
+        X86ISA::IntReg getSyscallArg(ThreadContext *tc,
+                                     int &i) override;
+        X86ISA::IntReg getSyscallArg(ThreadContext *tc, int &i,
+                                     int width) override;
+        void setSyscallArg(ThreadContext *tc, int i,
+                           X86ISA::IntReg val) override;
+        void clone(ThreadContext *old_tc, ThreadContext *new_tc,
+                   Process *process, TheISA::IntReg flags) override;
     };
-
-    /**
-     * Declaration of architectural page table for x86.
-     *
-     * These page tables are stored in system memory and respect x86 specification.
-     */
-    typedef MultiLevelPageTable<PageTableOps> ArchPageTable;
 
 }
 

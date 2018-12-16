@@ -41,16 +41,17 @@
  *          Andreas Hansson
  */
 
+#include "mem/packet_queue.hh"
+
 #include "base/trace.hh"
 #include "debug/Drain.hh"
 #include "debug/PacketQueue.hh"
-#include "mem/packet_queue.hh"
-
-using namespace std;
 
 PacketQueue::PacketQueue(EventManager& _em, const std::string& _label,
+                         const std::string& _sendEventName,
                          bool disable_sanity_check)
-    : em(_em), sendEvent(this), _disableSanityCheck(disable_sanity_check),
+    : em(_em), sendEvent([this]{ processSendEvent(); }, _sendEventName),
+      _disableSanityCheck(disable_sanity_check),
       label(_label), waitingOnRetry(false)
 {
 }
@@ -81,7 +82,7 @@ PacketQueue::hasAddr(Addr addr) const
 }
 
 bool
-PacketQueue::checkFunctional(PacketPtr pkt)
+PacketQueue::trySatisfyFunctional(PacketPtr pkt)
 {
     pkt->pushLabel(label);
 
@@ -91,7 +92,7 @@ PacketQueue::checkFunctional(PacketPtr pkt)
     while (!found && i != transmitList.end()) {
         // If the buffered packet contains data, and it overlaps the
         // current packet, then update data
-        found = pkt->checkFunctional(i->pkt);
+        found = pkt->trySatisfyFunctional(i->pkt);
         ++i;
     }
 
@@ -236,7 +237,8 @@ PacketQueue::drain()
 
 ReqPacketQueue::ReqPacketQueue(EventManager& _em, MasterPort& _masterPort,
                                const std::string _label)
-    : PacketQueue(_em, _label), masterPort(_masterPort)
+    : PacketQueue(_em, _label, name(_masterPort, _label)),
+      masterPort(_masterPort)
 {
 }
 
@@ -249,7 +251,8 @@ ReqPacketQueue::sendTiming(PacketPtr pkt)
 SnoopRespPacketQueue::SnoopRespPacketQueue(EventManager& _em,
                                            MasterPort& _masterPort,
                                            const std::string _label)
-    : PacketQueue(_em, _label), masterPort(_masterPort)
+    : PacketQueue(_em, _label, name(_masterPort, _label)),
+      masterPort(_masterPort)
 {
 }
 
@@ -261,7 +264,8 @@ SnoopRespPacketQueue::sendTiming(PacketPtr pkt)
 
 RespPacketQueue::RespPacketQueue(EventManager& _em, SlavePort& _slavePort,
                                  const std::string _label)
-    : PacketQueue(_em, _label), slavePort(_slavePort)
+    : PacketQueue(_em, _label, name(_slavePort, _label)),
+      slavePort(_slavePort)
 {
 }
 

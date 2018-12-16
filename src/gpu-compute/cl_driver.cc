@@ -35,6 +35,8 @@
 
 #include "gpu-compute/cl_driver.hh"
 
+#include <memory>
+
 #include "base/intmath.hh"
 #include "cpu/thread_context.hh"
 #include "gpu-compute/dispatcher.hh"
@@ -79,7 +81,7 @@ ClDriver::ClDriver(ClDriverParams *p)
         kernelInfo[i].code_offs = code_offs;
 
         name_offs += k->name().size() + 1;
-        code_offs += k->numInsts() * sizeof(GPUStaticInst*);
+        code_offs += k->numInsts() * sizeof(TheGpuISA::RawMachInst);
     }
 }
 
@@ -91,17 +93,16 @@ ClDriver::handshake(GpuDispatcher *_dispatcher)
 }
 
 int
-ClDriver::open(LiveProcess *p, ThreadContext *tc, int mode, int flags)
+ClDriver::open(Process *p, ThreadContext *tc, int mode, int flags)
 {
-    int fd = p->allocFD(-1, filename, 0, 0, false);
-    FDEntry *fde = p->getFDEntry(fd);
-    fde->driver = this;
-
-    return fd;
+    std::shared_ptr<DeviceFDEntry> fdp;
+    fdp = std::make_shared<DeviceFDEntry>(this, filename);
+    int tgt_fd = p->fds->allocFD(fdp);
+    return tgt_fd;
 }
 
 int
-ClDriver::ioctl(LiveProcess *process, ThreadContext *tc, unsigned req)
+ClDriver::ioctl(Process *process, ThreadContext *tc, unsigned req)
 {
     int index = 2;
     Addr buf_addr = process->getSyscallArg(tc, index);
@@ -130,7 +131,8 @@ ClDriver::ioctl(LiveProcess *process, ThreadContext *tc, unsigned req)
                 HsaCode *k = kernels[i];
                 // add one for terminating '\0'
                 sizes->string_table_size += k->name().size() + 1;
-                sizes->code_size += k->numInsts() * sizeof(GPUStaticInst*);
+                sizes->code_size +=
+                    k->numInsts() * sizeof(TheGpuISA::RawMachInst);
             }
 
             sizes.copyOut(tc->getMemProxy());
@@ -239,6 +241,13 @@ ClDriver::ioctl(LiveProcess *process, ThreadContext *tc, unsigned req)
         {
             BufferArg buf(buf_addr, sizeof(uint32_t));
             *((uint32_t*)buf.bufferPtr()) = dispatcher->wfSize();
+            buf.copyOut(tc->getMemProxy());
+        }
+        break;
+      case HSA_GET_HW_STATIC_CONTEXT_SIZE:
+        {
+            BufferArg buf(buf_addr, sizeof(uint32_t));
+            *((uint32_t*)buf.bufferPtr()) = dispatcher->getStaticContextSize();
             buf.copyOut(tc->getMemProxy());
         }
         break;

@@ -28,8 +28,9 @@
  * Authors: Gabe Black
  */
 
-#include "debug/CMOS.hh"
 #include "dev/x86/cmos.hh"
+
+#include "debug/CMOS.hh"
 #include "dev/x86/intdev.hh"
 #include "mem/packet_access.hh"
 
@@ -49,10 +50,10 @@ X86ISA::Cmos::read(PacketPtr pkt)
     switch(pkt->getAddr() - pioAddr)
     {
       case 0x0:
-        pkt->set(address);
+        pkt->setLE(address);
         break;
       case 0x1:
-        pkt->set(readRegister(address));
+        pkt->setLE(readRegister(address));
         break;
       default:
         panic("Read from undefined CMOS port.\n");
@@ -68,10 +69,10 @@ X86ISA::Cmos::write(PacketPtr pkt)
     switch(pkt->getAddr() - pioAddr)
     {
       case 0x0:
-        address = pkt->get<uint8_t>();
+        address = pkt->getLE<uint8_t>();
         break;
       case 0x1:
-        writeRegister(address, pkt->get<uint8_t>());
+        writeRegister(address, pkt->getLE<uint8_t>());
         break;
       default:
         panic("Write to undefined CMOS port.\n");

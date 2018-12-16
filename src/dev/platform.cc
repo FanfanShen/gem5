@@ -29,9 +29,10 @@
  *          Nathan Binkert
  */
 
-#include "base/misc.hh"
-#include "config/the_isa.hh"
 #include "dev/platform.hh"
+
+#include "base/logging.hh"
+#include "config/the_isa.hh"
 #include "sim/sim_exit.hh"
 
 using namespace std;

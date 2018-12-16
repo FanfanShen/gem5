@@ -36,7 +36,9 @@
 #include "dev/net/etherswitch.hh"
 
 #include "base/random.hh"
+#include "base/trace.hh"
 #include "debug/EthernetAll.hh"
+#include "sim/core.hh"
 
 using namespace std;
 
@@ -129,7 +131,8 @@ EtherSwitch::Interface::Interface(const std::string &name,
                                   Tick delay_var, double rate, unsigned id)
     : EtherInt(name), ticksPerByte(rate), switchDelay(delay),
       delayVar(delay_var), interfaceId(id), parent(etherSwitch),
-      outputFifo(name + ".outputFifo", outputBufferSize), txEvent(this)
+      outputFifo(name + ".outputFifo", outputBufferSize),
+      txEvent([this]{ transmit(); }, name)
 {
 }
 
@@ -172,7 +175,7 @@ EtherSwitch::Interface::enqueue(EthPacketPtr packet, unsigned senderId)
     // to send this packet out the external link
     // otherwise, there is already a txEvent scheduled
     if (outputFifo.push(packet, senderId)) {
-        parent->reschedule(txEvent, curTick() + switchingDelay());
+        parent->reschedule(txEvent, curTick() + switchingDelay(), true);
     }
 }
 
@@ -200,7 +203,7 @@ EtherSwitch::Interface::transmit()
 Tick
 EtherSwitch::Interface::switchingDelay()
 {
-    Tick delay = (Tick)ceil(((double)outputFifo.front()->length
+    Tick delay = (Tick)ceil(((double)outputFifo.front()->simLength
                                      * ticksPerByte) + 1.0);
     if (delayVar != 0)
                 delay += random_mt.random<Tick>(0, delayVar);
