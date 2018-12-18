@@ -1,0 +1,15 @@
+The latest gem5 vertion is forked from gem5/gem5 in 2018.12.16
+
+The local gem5 is cloned from github.
+
+The working branch is configured as follows:
+
+master - DO not working on this branch. This vertion is cloned from the remote spyrabbit repo/gem5. 
+
+dev - it is the basic configuration for working.
+
+method1 - paper method one works on this branch
+
+method2 - same as method one
+
+
