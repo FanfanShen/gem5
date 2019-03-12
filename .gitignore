@@ -1,5 +1,5 @@
 benchspec
-benchmark
+benchparsec
 build
 parser.out
 parsetab.py
