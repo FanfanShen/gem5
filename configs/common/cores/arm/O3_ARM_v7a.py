@@ -203,3 +203,21 @@ class O3_ARM_v7aL2(Cache):
     prefetcher = StridePrefetcher(degree=8, latency = 1)
     tags = BaseSetAssoc()
     repl_policy = RandomRP()
+
+
+# L3 Cache by sff
+class O3_ARM_v7aL3(Cache):
+    tag_latency = 12
+    data_latency = 12
+    response_latency = 12
+    mshrs = 16
+    tgts_per_mshr = 8
+    size = '1MB'
+    assoc = 16
+    write_buffers = 8
+    prefetch_on_access = True
+    clusivity = 'mostly_excl'
+    # Simple stride prefetcher
+    prefetcher = StridePrefetcher(degree=8, latency = 1)
+    tags = BaseSetAssoc()
+    repl_policy = RandomRP()
