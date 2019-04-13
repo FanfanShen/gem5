@@ -7,7 +7,7 @@ BINARY_DIR=/dist/m5/system/binaries
 
 
 # excution code
-$GEM5_DIR/build/ARM/gem5.debug --debug-flag=Cache --debug-file=trace.out.gz \
+$GEM5_DIR/build/ARM/gem5.debug --debug-flag=l3CacheAccess --debug-file=trace.out.gz \
         --outdir=$OUTPUT_DIR $GEM5_DIR/configs/example/parsec_l3_fs.py --maxinsts=2000000000 \
         --kernel=$BINARY_DIR/vmlinux.vexpress_gem5_v1_64 --machine-type=VExpress_GEM5_V1 \
 	--script=$GEM5_DIR/benchmark/streamcluster_16c_simsmall_ckpts.rcS \
