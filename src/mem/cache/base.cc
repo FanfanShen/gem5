@@ -61,6 +61,8 @@
 #include "params/WriteAllocator.hh"
 #include "sim/core.hh"
 
+#include "debug/l3CacheAccess.hh"
+
 class BaseMasterPort;
 class BaseSlavePort;
 
@@ -931,6 +933,21 @@ BaseCache::access(PacketPtr pkt, CacheBlk *&blk, Cycles &lat,
 
     DPRINTF(Cache, "%s for %s %s\n", __func__, pkt->print(),
             blk ? "hit " + blk->print() : "miss");
+
+    // record the read/write flag, access addr, access data.  sff add 
+//    if(blk) {
+//        if(pkt->isRead()) {
+// DPRINTF(l3CacheAccess, "isread: 0 accessAddr: %X accessData: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X \n", pkt->getAddr(),blk->data[0],blk->data[1],blk->data[2],blk->data[3],blk->data[4],blk->data[5],blk->data[6],blk->data[7],blk->data[8],blk->data[9],blk->data[10],blk->data[11],blk->data[12],blk->data[13],blk->data[14],blk->data[15],blk->data[16],blk->data[17],blk->data[18],blk->data[19],blk->data[20],blk->data[21],blk->data[22],blk->data[23],blk->data[24],blk->data[25],blk->data[26],blk->data[27],blk->data[28],blk->data[29],blk->data[30],blk->data[31],blk->data[32],blk->data[33],blk->data[34],blk->data[35],blk->data[36],blk->data[37],blk->data[38],blk->data[39],blk->data[40],blk->data[41],blk->data[42],blk->data[43],blk->data[44],blk->data[45],blk->data[46],blk->data[47],blk->data[48],blk->data[49],blk->data[50],blk->data[51],blk->data[52],blk->data[53],blk->data[54],blk->data[55],blk->data[56],blk->data[57],blk->data[58],blk->data[59],blk->data[60],blk->data[61],blk->data[62],blk->data[63]);	
+
+//DPRINTF(l3CacheAccess, "isread: 0 accessAddr: %X accessData: %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X \n", pkt->getAddr(),blk->data[0],blk->data[1],blk->data[2],blk->data[3],blk->data[4],blk->data[5],blk->data[6],blk->data[7],blk->data[8],blk->data[9],blk->data[10],blk->data[11],blk->data[12],blk->data[13],blk->data[14],blk->data[15],blk->data[16],blk->data[17],blk->data[18],blk->data[19],blk->data[20],blk->data[21],blk->data[22],blk->data[23],blk->data[24],blk->data[25],blk->data[26],blk->data[27],blk->data[28],blk->data[29],blk->data[30],blk->data[31],blk->data[32],blk->data[33],blk->data[34],blk->data[35],blk->data[36],blk->data[37],blk->data[38],blk->data[39],blk->data[40],blk->data[41],blk->data[42],blk->data[43],blk->data[44],blk->data[45],blk->data[46],blk->data[47],blk->data[48],blk->data[49],blk->data[50],blk->data[51],blk->data[52],blk->data[53],blk->data[54],blk->data[55],blk->data[56],blk->data[57],blk->data[58],blk->data[59],blk->data[60],blk->data[61],blk->data[62],blk->data[63]);
+//        } else {
+//	  if(pkt->isWrite()) {
+// DPRINTF(l3CacheAccess, "iswrite: 1 accessAddr: %X accessData: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X \n", pkt->getAddr(),blk->data[0],blk->data[1],blk->data[2],blk->data[3],blk->data[4],blk->data[5],blk->data[6],blk->data[7],blk->data[8],blk->data[9],blk->data[10],blk->data[11],blk->data[12],blk->data[13],blk->data[14],blk->data[15],blk->data[16],blk->data[17],blk->data[18],blk->data[19],blk->data[20],blk->data[21],blk->data[22],blk->data[23],blk->data[24],blk->data[25],blk->data[26],blk->data[27],blk->data[28],blk->data[29],blk->data[30],blk->data[31],blk->data[32],blk->data[33],blk->data[34],blk->data[35],blk->data[36],blk->data[37],blk->data[38],blk->data[39],blk->data[40],blk->data[41],blk->data[42],blk->data[43],blk->data[44],blk->data[45],blk->data[46],blk->data[47],blk->data[48],blk->data[49],blk->data[50],blk->data[51],blk->data[52],blk->data[53],blk->data[54],blk->data[55],blk->data[56],blk->data[57],blk->data[58],blk->data[59],blk->data[60],blk->data[61],blk->data[62],blk->data[63]);        
+//    DPRINTF(l3CacheAccess, "iswrite: 0 accessAddr: %X accessData: %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X %X \n", pkt->getAddr(),blk->data[0],blk->data[1],blk->data[2],blk->data[3],blk->data[4],blk->data[5],blk->data[6],blk->data[7],blk->data[8],blk->data[9],blk->data[10],blk->data[11],blk->data[12],blk->data[13],blk->data[14],blk->data[15],blk->data[16],blk->data[17],blk->data[18],blk->data[19],blk->data[20],blk->data[21],blk->data[22],blk->data[23],blk->data[24],blk->data[25],blk->data[26],blk->data[27],blk->data[28],blk->data[29],blk->data[30],blk->data[31],blk->data[32],blk->data[33],blk->data[34],blk->data[35],blk->data[36],blk->data[37],blk->data[38],blk->data[39],blk->data[40],blk->data[41],blk->data[42],blk->data[43],blk->data[44],blk->data[45],blk->data[46],blk->data[47],blk->data[48],blk->data[49],blk->data[50],blk->data[51],blk->data[52],blk->data[53],blk->data[54],blk->data[55],blk->data[56],blk->data[57],blk->data[58],blk->data[59],blk->data[60],blk->data[61],blk->data[62],blk->data[63]);
+//          }
+//        }
+//    }
+
 
     if (pkt->req->isCacheMaintenance()) {
         // A cache maintenance operation is always forwarded to the
