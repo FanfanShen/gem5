@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Andreas Sandberg
  */
 
 #ifndef __DEV_PS2_KEYBOARD_HH__
@@ -59,7 +56,7 @@ class PS2Keyboard : public PS2Device, VncKeyboard
     bool enabled;
 
   public:
-    PS2Keyboard(const PS2KeyboardParams *p);
+    PS2Keyboard(const PS2KeyboardParams &p);
 
     void serialize(CheckpointOut &cp) const override;
     void unserialize(CheckpointIn &cp) override;

@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_X86_TLB_HH__
@@ -48,6 +46,7 @@
 #include "base/trie.hh"
 #include "mem/request.hh"
 #include "params/X86TLB.hh"
+#include "sim/stats.hh"
 
 class ThreadContext;
 
@@ -67,7 +66,7 @@ namespace X86ISA
       public:
 
         typedef X86TLBParams Params;
-        TLB(const Params *p);
+        TLB(const Params &p);
 
         void takeOverFrom(BaseTLB *otlb) override {}
 
@@ -100,13 +99,18 @@ namespace X86ISA
         TlbEntryTrie trie;
         uint64_t lruSeq;
 
-        // Statistics
-        Stats::Scalar rdAccesses;
-        Stats::Scalar wrAccesses;
-        Stats::Scalar rdMisses;
-        Stats::Scalar wrMisses;
+        AddrRange m5opRange;
 
-        Fault translateInt(const RequestPtr &req, ThreadContext *tc);
+        struct TlbStats : public Stats::Group {
+            TlbStats(Stats::Group *parent);
+
+            Stats::Scalar rdAccesses;
+            Stats::Scalar wrAccesses;
+            Stats::Scalar rdMisses;
+            Stats::Scalar wrMisses;
+        } stats;
+
+        Fault translateInt(bool read, RequestPtr req, ThreadContext *tc);
 
         Fault translate(const RequestPtr &req, ThreadContext *tc,
                 Translation *translation, Mode mode,
@@ -123,6 +127,8 @@ namespace X86ISA
         }
 
         Fault translateAtomic(
+            const RequestPtr &req, ThreadContext *tc, Mode mode) override;
+        Fault translateFunctional(
             const RequestPtr &req, ThreadContext *tc, Mode mode) override;
         void translateTiming(
             const RequestPtr &req, ThreadContext *tc,
@@ -146,26 +152,21 @@ namespace X86ISA
 
         TlbEntry *insert(Addr vpn, const TlbEntry &entry);
 
-        /*
-         * Function to register Stats
-         */
-        void regStats() override;
-
         // Checkpointing
         void serialize(CheckpointOut &cp) const override;
         void unserialize(CheckpointIn &cp) override;
 
         /**
-         * Get the table walker master port. This is used for
+         * Get the table walker port. This is used for
          * migrating port connections during a CPU takeOverFrom()
          * call. For architectures that do not have a table walker,
          * NULL is returned, hence the use of a pointer rather than a
          * reference. For X86 this method will always return a valid
          * port pointer.
          *
-         * @return A pointer to the walker master port
+         * @return A pointer to the walker port
          */
-        BaseMasterPort *getMasterPort() override;
+        Port *getTableWalkerPort() override;
     };
 }
 

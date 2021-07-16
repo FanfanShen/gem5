@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #ifndef __BASE_PIXEL_HH__
@@ -49,6 +47,7 @@
 #include "base/cprintf.hh"
 #include "base/str.hh"
 #include "base/types.hh"
+#include "sim/byteswap.hh"
 
 /**
  * Internal gem5 representation of a Pixel.
@@ -129,7 +128,7 @@ class PixelConverter
     PixelConverter(unsigned length,
                    unsigned ro, unsigned go, unsigned bo,
                    unsigned rw, unsigned gw, unsigned bw,
-                   ByteOrder byte_order = LittleEndianByteOrder);
+                   ByteOrder byte_order = ByteOrder::little);
 
     /** Get the Pixel representation of a color word. */
     Pixel toPixel(uint32_t word) const {

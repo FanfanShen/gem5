@@ -1,6 +1,6 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
-# Copyright (c) 2012-2013,2015-2016 ARM Limited
+# Copyright (c) 2012-2013,2015-2016, 2020 ARM Limited
 # All rights reserved
 #
 # The license below extends only to copyright in the software and shall
@@ -34,10 +34,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Ali Saidi
-#          Curtis Dunham
-#
 
 # This python code is used to migrate checkpoints that were created in one
 # version of the simulator to newer version. As features are added or bugs are
@@ -73,7 +69,7 @@
 # upgraders in private branches.
 
 
-import ConfigParser
+import configparser
 import glob, types, sys, os
 import os.path as osp
 
@@ -83,8 +79,8 @@ def verboseprint(*args):
     if not verbose_print:
         return
     for arg in args:
-        print arg,
-    print
+        print(arg, end=' ')
+    print("\n")
 
 class Upgrader:
     tag_set = set()
@@ -93,7 +89,7 @@ class Upgrader:
     legacy = {}
     def __init__(self, filename):
         self.filename = filename
-        execfile(filename, {}, self.__dict__)
+        exec(open(filename).read(), {}, self.__dict__)
 
         if not hasattr(self, 'tag'):
             self.tag = osp.basename(filename)[:-3]
@@ -103,7 +99,7 @@ class Upgrader:
             self.depends = [self.depends]
 
         if not isinstance(self.depends, list):
-            print "Error: 'depends' for %s is the wrong type" % self.tag
+            print("Error: 'depends' for {} is the wrong type".format(self.tag))
             sys.exit(1)
 
         if hasattr(self, 'fwd_depends'):
@@ -113,23 +109,25 @@ class Upgrader:
             self.fwd_depends = []
 
         if not isinstance(self.fwd_depends, list):
-            print "Error: 'fwd_depends' for %s is the wrong type" % self.tag
+            print("Error: 'fwd_depends' for {} is the wrong type".format(
+                self.tag))
             sys.exit(1)
 
         if hasattr(self, 'upgrader'):
             if not isinstance(self.upgrader, types.FunctionType):
-                print "Error: 'upgrader' for %s is %s, not function" \
-                    % (self.tag, type(self))
+                print("Error: 'upgrader' for {} is {}, not function".format(
+                    self.tag, type(self)))
                 sys.exit(1)
             Upgrader.tag_set.add(self.tag)
         elif hasattr(self, 'downgrader'):
             if not isinstance(self.downgrader, types.FunctionType):
-                print "Error: 'downgrader' for %s is %s, not function" \
-                    % (self.tag, type(self))
+                print("Error: 'downgrader' for {} is {}, not function".format(
+                    self.tag, type(self)))
                 sys.exit(1)
             Upgrader.untag_set.add(self.tag)
         else:
-            print "Error: no upgrader or downgrader method for", self.tag
+            print("Error: no upgrader or downgrader method for {}".format(
+                self.tag))
             sys.exit(1)
 
         if hasattr(self, 'legacy_version'):
@@ -171,23 +169,23 @@ class Upgrader:
             i = i + 1
 
         # resolve forward dependencies and audit normal dependencies
-        for tag, upg in Upgrader.by_tag.items():
+        for tag, upg in list(Upgrader.by_tag.items()):
             for fd in upg.fwd_depends:
                 if fd not in Upgrader.by_tag:
-                    print "Error: '%s' cannot (forward) depend on "\
-                          "nonexistent tag '%s'" % (fd, tag)
+                    print("Error: '{}' cannot (forward) depend on "
+                          "nonexistent tag '{}'".format(fd, tag))
                     sys.exit(1)
                 Upgrader.by_tag[fd].depends.append(tag)
             for dep in upg.depends:
                 if dep not in Upgrader.by_tag:
-                    print "Error: '%s' cannot depend on "\
-                          "nonexistent tag '%s'" % (tag, dep)
+                    print("Error: '{}' cannot depend on "
+                          "nonexistent tag '{}'".format(tag, dep))
                     sys.exit(1)
 
 def process_file(path, **kwargs):
     if not osp.isfile(path):
         import errno
-        raise IOError(ennro.ENOENT, "No such file", path)
+        raise IOError(errno.ENOENT, "No such file", path)
 
     verboseprint("Processing file %s...." % path)
 
@@ -195,7 +193,7 @@ def process_file(path, **kwargs):
         import shutil
         shutil.copyfile(path, path + '.bak')
 
-    cpt = ConfigParser.SafeConfigParser()
+    cpt = configparser.SafeConfigParser()
 
     # gem5 is case sensitive with paramaters
     cpt.optionxform = str
@@ -214,7 +212,7 @@ def process_file(path, **kwargs):
         # Legacy linear checkpoint version
         # convert to list of tags before proceeding
         tags = set([])
-        for i in xrange(2, cpt_ver+1):
+        for i in range(2, cpt_ver+1):
             tags.add(Upgrader.legacy[i].tag)
         verboseprint("performed legacy version -> tags conversion")
         change = True
@@ -223,7 +221,7 @@ def process_file(path, **kwargs):
     elif cpt.has_option('Globals','version_tags'):
         tags = set((''.join(cpt.get('Globals','version_tags'))).split())
     else:
-        print "fatal: no version information in checkpoint"
+        print("fatal: no version information in checkpoint")
         exit(1)
 
     verboseprint("has tags", ' '.join(tags))
@@ -232,8 +230,8 @@ def process_file(path, **kwargs):
     # simulator support for its changes.
     unknown_tags = tags - (Upgrader.tag_set | Upgrader.untag_set)
     if unknown_tags:
-        print "warning: upgrade script does not recognize the following "\
-              "tags in this checkpoint:", ' '.join(unknown_tags)
+        print("warning: upgrade script does not recognize the following "
+              "tags in this checkpoint:", ' '.join(unknown_tags))
 
     # Apply migrations for tags not in checkpoint and tags present for which
     # downgraders are present, respecting dependences
@@ -241,8 +239,8 @@ def process_file(path, **kwargs):
     while to_apply:
         ready = set([ t for t in to_apply if Upgrader.get(t).ready(tags) ])
         if not ready:
-            print "could not apply these upgrades:", ' '.join(to_apply)
-            print "update dependences impossible to resolve; aborting"
+            print("could not apply these upgrades:", ' '.join(to_apply))
+            print("update dependences impossible to resolve; aborting")
             exit(1)
 
         for tag in ready:
@@ -282,14 +280,14 @@ if __name__ == '__main__':
     Upgrader.load_all()
 
     if options.get_cc_file:
-        print "// this file is auto-generated by util/cpt_upgrader.py"
-        print "#include <string>"
-        print "#include <set>"
-        print
-        print "std::set<std::string> version_tags = {"
+        print("// this file is auto-generated by util/cpt_upgrader.py")
+        print("#include <string>")
+        print("#include <set>")
+        print()
+        print("std::set<std::string> version_tags = {")
         for tag in Upgrader.tag_set:
-            print "  \"%s\"," % tag
-        print "};"
+            print("  \"{}\",".format(tag))
+        print("};")
         exit(0)
     elif len(args) != 1:
         parser.error("You must specify a checkpoint file to modify or a "\
@@ -316,8 +314,8 @@ if __name__ == '__main__':
         elif osp.isfile(cpt_file):
             process_file(cpt_file, **vars(options))
         else:
-            print "Error: checkpoint file not found at in %s " % path,
-            print "and recurse not specified"
+            print("Error: checkpoint file not found in {} ".format(path))
+            print("and recurse not specified")
             sys.exit(1)
     sys.exit(0)
 

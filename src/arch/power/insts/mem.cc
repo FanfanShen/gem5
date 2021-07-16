@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Timothy M. Jones
  */
 
 #include "arch/power/insts/mem.hh"
@@ -35,13 +33,14 @@
 using namespace PowerISA;
 
 std::string
-MemOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+MemOp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 {
     return csprintf("%-10s", mnemonic);
 }
 
 std::string
-MemDispOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+MemDispOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream ss;
 
@@ -54,13 +53,13 @@ MemDispOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
             // If the instruction updates the source register with the
             // EA, then this source register is placed in position 0,
             // therefore we print the last destination register.
-            printReg(ss, _destRegIdx[_numDestRegs-1]);
+            printReg(ss, destRegIdx(_numDestRegs-1));
         }
     }
 
     // Print the data register for a store
     else {
-        printReg(ss, _srcRegIdx[1]);
+        printReg(ss, srcRegIdx(1));
     }
 
     // Print the displacement
@@ -68,7 +67,7 @@ MemDispOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 
     // Print the address register
     ss << "(";
-    printReg(ss, _srcRegIdx[0]);
+    printReg(ss, srcRegIdx(0));
     ss << ")";
 
     return ss.str();

@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 /**
@@ -59,7 +57,7 @@ class Pc : public Platform
      */
     void init() override;
 
-    Pc(const Params *p);
+    Pc(const Params &p);
 
   public:
     void postConsoleInt() override;

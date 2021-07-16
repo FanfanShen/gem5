@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
  */
 
 /**
@@ -51,11 +49,14 @@
 
 #include "base/intmath.hh"
 
-BaseSetAssoc::BaseSetAssoc(const Params *p)
-    :BaseTags(p), allocAssoc(p->assoc), blks(p->size / p->block_size),
-     sequentialAccess(p->sequential_access),
-     replacementPolicy(p->replacement_policy)
+BaseSetAssoc::BaseSetAssoc(const Params &p)
+    :BaseTags(p), allocAssoc(p.assoc), blks(p.size / p.block_size),
+     sequentialAccess(p.sequential_access),
+     replacementPolicy(p.replacement_policy)
 {
+    // There must be a indexing policy
+    fatal_if(!p.indexing_policy, "An indexing policy is required");
+
     // Check parameters
     if (blkSize < 4 || !isPowerOf2(blkSize)) {
         fatal("Block size must be at least 4 and a power of 2");
@@ -87,17 +88,20 @@ BaseSetAssoc::invalidate(CacheBlk *blk)
     BaseTags::invalidate(blk);
 
     // Decrease the number of tags in use
-    tagsInUse--;
+    stats.tagsInUse--;
 
     // Invalidate replacement data
     replacementPolicy->invalidate(blk->replacementData);
 }
 
-BaseSetAssoc *
-BaseSetAssocParams::create()
+void
+BaseSetAssoc::moveBlock(CacheBlk *src_blk, CacheBlk *dest_blk)
 {
-    // There must be a indexing policy
-    fatal_if(!indexing_policy, "An indexing policy is required");
+    BaseTags::moveBlock(src_blk, dest_blk);
 
-    return new BaseSetAssoc(this);
+    // Since the blocks were using different replacement data pointers,
+    // we must touch the replacement data of the new entry, and invalidate
+    // the one that is being moved.
+    replacementPolicy->invalidate(src_blk->replacementData);
+    replacementPolicy->reset(dest_blk->replacementData);
 }

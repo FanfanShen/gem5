@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stephen Hines
  */
 
 #ifndef __ARCH_ARM_TYPES_HH__
@@ -71,6 +69,11 @@ namespace ArmISA
         // Decoder state
         Bitfield<63, 62> decoderFault; // See DecoderFault
         Bitfield<61> illegalExecution;
+        Bitfield<60> debugStep;
+
+        // SVE vector length, encoded in the same format as the ZCR_EL<x>.LEN
+        // bitfields
+        Bitfield<59, 56> sveLen;
 
         // ITSTATE bits
         Bitfield<55, 48> itstate;
@@ -226,9 +229,15 @@ namespace ArmISA
         uint8_t _nextItstate;
         uint8_t _size;
         bool _illegalExec;
+
+        // Software Step flags
+        bool _debugStep;
+        bool _stepped;
+
       public:
         PCState() : flags(0), nextFlags(0), _itstate(0), _nextItstate(0),
-                    _size(0), _illegalExec(false)
+                    _size(0), _illegalExec(false), _debugStep(false),
+                    _stepped(false)
         {}
 
         void
@@ -239,7 +248,8 @@ namespace ArmISA
         }
 
         PCState(Addr val) : flags(0), nextFlags(0), _itstate(0),
-                            _nextItstate(0), _size(0), _illegalExec(false)
+                            _nextItstate(0), _size(0), _illegalExec(false),
+                            _debugStep(false), _stepped(false)
         { set(val); }
 
         bool
@@ -252,6 +262,30 @@ namespace ArmISA
         illegalExec(bool val)
         {
             _illegalExec = val;
+        }
+
+        bool
+        debugStep() const
+        {
+            return _debugStep;
+        }
+
+        void
+        debugStep(bool val)
+        {
+            _debugStep = val;
+        }
+
+        bool
+        stepped() const
+        {
+            return _stepped;
+        }
+
+        void
+        stepped(bool val)
+        {
+            _stepped = val;
         }
 
         bool
@@ -489,7 +523,9 @@ namespace ArmISA
                 flags == opc.flags && nextFlags == opc.nextFlags &&
                 _itstate == opc._itstate &&
                 _nextItstate == opc._nextItstate &&
-                _illegalExec == opc._illegalExec;
+                _illegalExec == opc._illegalExec &&
+                _debugStep == opc._debugStep &&
+                _stepped == opc._stepped;
         }
 
         bool
@@ -508,6 +544,8 @@ namespace ArmISA
             SERIALIZE_SCALAR(_itstate);
             SERIALIZE_SCALAR(_nextItstate);
             SERIALIZE_SCALAR(_illegalExec);
+            SERIALIZE_SCALAR(_debugStep);
+            SERIALIZE_SCALAR(_stepped);
         }
 
         void
@@ -520,6 +558,8 @@ namespace ArmISA
             UNSERIALIZE_SCALAR(_itstate);
             UNSERIALIZE_SCALAR(_nextItstate);
             UNSERIALIZE_SCALAR(_illegalExec);
+            UNSERIALIZE_SCALAR(_debugStep);
+            UNSERIALIZE_SCALAR(_stepped);
         }
     };
 
@@ -616,6 +656,7 @@ namespace ArmISA
         EC_TRAPPED_HCPTR           = 0x7,
         EC_TRAPPED_SIMD_FP         = 0x7,   // AArch64 alias
         EC_TRAPPED_CP10_MRC_VMRS   = 0x8,
+        EC_TRAPPED_PAC             = 0x9,
         EC_TRAPPED_BXJ             = 0xA,
         EC_TRAPPED_CP14_MCRR_MRRC  = 0xC,
         EC_ILLEGAL_INST            = 0xE,
@@ -628,6 +669,7 @@ namespace ArmISA
         EC_HVC_64                  = 0x16,
         EC_SMC_64                  = 0x17,
         EC_TRAPPED_MSR_MRS_64      = 0x18,
+        EC_TRAPPED_SVE             = 0x19,
         EC_PREFETCH_ABORT_TO_HYP   = 0x20,
         EC_PREFETCH_ABORT_LOWER_EL = 0x20,  // AArch64 alias
         EC_PREFETCH_ABORT_FROM_HYP = 0x21,
@@ -641,7 +683,17 @@ namespace ArmISA
         EC_FP_EXCEPTION            = 0x28,
         EC_FP_EXCEPTION_64         = 0x2C,
         EC_SERROR                  = 0x2F,
+        EC_HW_BREAKPOINT           = 0x30,
+        EC_HW_BREAKPOINT_LOWER_EL  = 0x30,
+        EC_HW_BREAKPOINT_CURR_EL   = 0x31,
+        EC_SOFTWARE_STEP           = 0x32,
+        EC_SOFTWARE_STEP_LOWER_EL  = 0x32,
+        EC_SOFTWARE_STEP_CURR_EL   = 0x33,
+        EC_WATCHPOINT              = 0x34,
+        EC_WATCHPOINT_LOWER_EL     = 0x34,
+        EC_WATCHPOINT_CURR_EL      = 0x35,
         EC_SOFTWARE_BREAKPOINT     = 0x38,
+        EC_VECTOR_CATCH            = 0x3A,
         EC_SOFTWARE_BREAKPOINT_64  = 0x3C,
     };
 
@@ -754,6 +806,18 @@ namespace ArmISA
         }
     }
 
+    constexpr unsigned MaxSveVecLenInBits = 2048;
+    static_assert(MaxSveVecLenInBits >= 128 &&
+                  MaxSveVecLenInBits <= 2048 &&
+                  MaxSveVecLenInBits % 128 == 0,
+                  "Unsupported max. SVE vector length");
+    constexpr unsigned MaxSveVecLenInBytes  = MaxSveVecLenInBits >> 3;
+    constexpr unsigned MaxSveVecLenInWords  = MaxSveVecLenInBits >> 5;
+    constexpr unsigned MaxSveVecLenInDWords = MaxSveVecLenInBits >> 6;
+
+    constexpr unsigned VecRegSizeBytes = MaxSveVecLenInBytes;
+    constexpr unsigned VecPredRegSizeBits = MaxSveVecLenInBytes;
+    constexpr unsigned VecPredRegHasPackedRepr = false;
 } // namespace ArmISA
 
 #endif

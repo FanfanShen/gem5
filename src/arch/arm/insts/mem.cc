@@ -36,15 +36,11 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stephen Hines
  */
 
 #include "arch/arm/insts/mem.hh"
 
 #include "base/loader/symtab.hh"
-
-using namespace std;
 
 namespace ArmISA
 {
@@ -77,24 +73,10 @@ MemoryReg::printOffset(std::ostream &os) const
     }
 }
 
-string
-Swap::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+std::string
+RfeOp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 {
-    stringstream ss;
-    printMnemonic(ss);
-    printIntReg(ss, dest);
-    ss << ", ";
-    printIntReg(ss, op1);
-    ss << ", [";
-    printIntReg(ss, base);
-    ss << "]";
-    return ss.str();
-}
-
-string
-RfeOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
-{
-    stringstream ss;
+    std::stringstream ss;
     switch (mode) {
       case DecrementAfter:
         printMnemonic(ss, "da");
@@ -116,10 +98,10 @@ RfeOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
     return ss.str();
 }
 
-string
-SrsOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+std::string
+SrsOp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 {
-    stringstream ss;
+    std::stringstream ss;
     switch (mode) {
       case DecrementAfter:
         printMnemonic(ss, "da");

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2016 ARM Limited
+ * Copyright (c) 2015-2017 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Steve Reinhardt
  */
 
 #ifndef __CPU_O3_RENAME_MAP_HH__
@@ -124,7 +121,8 @@ class SimpleRenameMap
      * @param arch_reg The architectural register to look up.
      * @return The physical register it is currently mapped to.
      */
-    PhysRegIdPtr lookup(const RegId& arch_reg) const
+    PhysRegIdPtr
+    lookup(const RegId& arch_reg) const
     {
         assert(arch_reg.flatIndex() <= map.size());
         return map[arch_reg.flatIndex()];
@@ -136,7 +134,8 @@ class SimpleRenameMap
      * @param arch_reg The architectural register to remap.
      * @param phys_reg The physical register to remap it to.
      */
-    void setEntry(const RegId& arch_reg, PhysRegIdPtr phys_reg)
+    void
+    setEntry(const RegId& arch_reg, PhysRegIdPtr phys_reg)
     {
         assert(arch_reg.flatIndex() <= map.size());
         map[arch_reg.flatIndex()] = phys_reg;
@@ -160,7 +159,6 @@ class SimpleRenameMap
     /** @} */
 };
 
-
 /**
  * Unified register rename map for all classes of registers.  Wraps a
  * set of class-specific rename maps.  Methods that do not specify a
@@ -171,9 +169,6 @@ class SimpleRenameMap
 class UnifiedRenameMap
 {
   private:
-    static constexpr uint32_t NVecElems = TheISA::NumVecElemPerVecReg;
-    using VecReg = TheISA::VecReg;
-
     /** The integer register rename map */
     SimpleRenameMap intMap;
 
@@ -188,6 +183,9 @@ class UnifiedRenameMap
 
     /** The vector element register rename map */
     SimpleRenameMap vecElemMap;
+
+    /** The predicate register rename map */
+    SimpleRenameMap predMap;
 
     using VecMode = Enums::VecRegRenameMode;
     VecMode vecMode;
@@ -236,6 +234,8 @@ class UnifiedRenameMap
           case VecElemClass:
             assert(vecMode == Enums::Elem);
             return vecElemMap.rename(arch_reg);
+          case VecPredRegClass:
+            return predMap.rename(arch_reg);
           case CCRegClass:
             return ccMap.rename(arch_reg);
           case MiscRegClass:
@@ -260,7 +260,8 @@ class UnifiedRenameMap
      * @param arch_reg The architectural register to look up.
      * @return The physical register it is currently mapped to.
      */
-    PhysRegIdPtr lookup(const RegId& arch_reg) const
+    PhysRegIdPtr
+    lookup(const RegId& arch_reg) const
     {
         switch (arch_reg.classValue()) {
           case IntRegClass:
@@ -276,6 +277,9 @@ class UnifiedRenameMap
           case VecElemClass:
             assert(vecMode == Enums::Elem);
             return  vecElemMap.lookup(arch_reg);
+
+          case VecPredRegClass:
+            return predMap.lookup(arch_reg);
 
           case CCRegClass:
             return ccMap.lookup(arch_reg);
@@ -299,7 +303,8 @@ class UnifiedRenameMap
      * @param arch_reg The architectural register to remap.
      * @param phys_reg The physical register to remap it to.
      */
-    void setEntry(const RegId& arch_reg, PhysRegIdPtr phys_reg)
+    void
+    setEntry(const RegId& arch_reg, PhysRegIdPtr phys_reg)
     {
         switch (arch_reg.classValue()) {
           case IntRegClass:
@@ -319,6 +324,10 @@ class UnifiedRenameMap
             assert(phys_reg->isVectorPhysElem());
             assert(vecMode == Enums::Elem);
             return vecElemMap.setEntry(arch_reg, phys_reg);
+
+          case VecPredRegClass:
+            assert(phys_reg->isVecPredPhysReg());
+            return predMap.setEntry(arch_reg, phys_reg);
 
           case CCRegClass:
             assert(phys_reg->isCCPhysReg());
@@ -344,41 +353,56 @@ class UnifiedRenameMap
      * this number of entries is available regardless of which class
      * of registers is requested.
      */
-    unsigned numFreeEntries() const
+    unsigned
+    numFreeEntries() const
     {
-        return std::min(
-                std::min(intMap.numFreeEntries(), floatMap.numFreeEntries()),
-                vecMode == Enums::Full ? vecMap.numFreeEntries()
-                                    : vecElemMap.numFreeEntries());
+        return std::min({intMap.numFreeEntries(),
+                         floatMap.numFreeEntries(),
+                         vecMode == Enums::Full ? vecMap.numFreeEntries() :
+                                                  vecElemMap.numFreeEntries(),
+                         predMap.numFreeEntries()});
     }
 
     unsigned numFreeIntEntries() const { return intMap.numFreeEntries(); }
     unsigned numFreeFloatEntries() const { return floatMap.numFreeEntries(); }
-    unsigned numFreeVecEntries() const
+    unsigned
+    numFreeVecEntries() const
     {
         return vecMode == Enums::Full
                 ? vecMap.numFreeEntries()
                 : vecElemMap.numFreeEntries();
     }
+    unsigned numFreePredEntries() const { return predMap.numFreeEntries(); }
     unsigned numFreeCCEntries() const { return ccMap.numFreeEntries(); }
 
     /**
      * Return whether there are enough registers to serve the request.
      */
-    bool canRename(uint32_t intRegs, uint32_t floatRegs, uint32_t vectorRegs,
-                    uint32_t vecElemRegs, uint32_t ccRegs) const
+    bool
+    canRename(uint32_t intRegs, uint32_t floatRegs, uint32_t vectorRegs,
+              uint32_t vecElemRegs, uint32_t vecPredRegs,
+              uint32_t ccRegs) const
     {
         return intRegs <= intMap.numFreeEntries() &&
             floatRegs <= floatMap.numFreeEntries() &&
             vectorRegs <= vecMap.numFreeEntries() &&
             vecElemRegs <= vecElemMap.numFreeEntries() &&
+            vecPredRegs <= predMap.numFreeEntries() &&
             ccRegs <= ccMap.numFreeEntries();
     }
     /**
      * Set vector mode to Full or Elem.
      * Ignore 'silent' modifications.
+     *
+     * @param newVecMode new vector renaming mode
      */
-    void switchMode(VecMode newVecMode, UnifiedFreeList* freeList);
+    void switchMode(VecMode newVecMode);
+
+    /**
+     * Switch freeList of registers from Full to Elem or vicevers
+     * depending on vecMode (vector renaming mode).
+     */
+    void switchFreeList(UnifiedFreeList* freeList);
 
 };
 

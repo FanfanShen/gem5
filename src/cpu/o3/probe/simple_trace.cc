@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Matt Horsnell
  */
 
 #include "cpu/o3/probe/simple_trace.hh"
@@ -64,10 +62,4 @@ void SimpleTrace::regProbeListeners()
                 &SimpleTrace::traceCommit));
     listeners.push_back(new DynInstListener(this, "Fetch",
                 &SimpleTrace::traceFetch));
-}
-
-SimpleTrace*
-SimpleTraceParams::create()
-{
-    return new SimpleTrace(this);
 }

@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Brett Miller
  */
 
 #include "arch/mips/dsp.hh"
@@ -37,7 +35,6 @@
 #include "sim/serialize.hh"
 
 using namespace MipsISA;
-using namespace std;
 
 int32_t
 MipsISA::bitrev(int32_t value)

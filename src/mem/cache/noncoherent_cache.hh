@@ -36,13 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Dave Greene
- *          Steve Reinhardt
- *          Ron Dreslinski
- *          Andreas Hansson
- *          Nikos Nikoleris
  */
 
 /**
@@ -126,7 +119,7 @@ class NoncoherentCache : public BaseCache
     M5_NODISCARD PacketPtr evictBlock(CacheBlk *blk) override;
 
   public:
-    NoncoherentCache(const NoncoherentCacheParams *p);
+    NoncoherentCache(const NoncoherentCacheParams &p);
 };
 
 #endif // __MEM_CACHE_NONCOHERENTCACHE_HH__

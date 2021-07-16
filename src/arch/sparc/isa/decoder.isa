@@ -23,10 +23,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Ali Saidi
-//          Gabe Black
-//          Steve Reinhardt
 
 ////////////////////////////////////////////////////////////////////
 //
@@ -138,7 +134,7 @@ decode OP default Unknown::unknown()
         }
     }
     0x1: BranchN::call(30, {{
-            IntReg midVal;
+            RegVal midVal;
             R15 = midVal = (Pstate.am ? (PC)<31:0> : PC);
             NNPC = midVal + disp;
     }},None, None, IsIndirectControl, IsCall);
@@ -339,7 +335,8 @@ decode OP default Unknown::unknown()
                 // 7-14 should cause an illegal instruction exception
                 0x0F: decode I {
                     0x0: Nop::stbar(IsWriteBarrier, MemWriteOp);
-                    0x1: Nop::membar(IsMemBarrier, MemReadOp);
+                    0x1: Nop::membar(IsReadBarrier, IsWriteBarrier,
+                                     MemReadOp);
                 }
                 0x10: Priv::rdpcr({{Rd = Pcr;}});
                 0x11: Priv::rdpic({{Rd = Pic;}}, {{Pcr<0:>}});
@@ -980,6 +977,10 @@ decode OP default Unknown::unknown()
                     0x21: m5exit({{
                         PseudoInst::m5exit(xc->tcBase(), O0);
                     }}, No_OpClass, IsNonSpeculative);
+                    0x23: m5sum({{
+                        O0 = PseudoInst::m5sum(xc->tcBase(),
+                                O0, O1, O2, O3, O4, O5);
+                    }}, IsNonSpeculative);
                     0x50: m5readfile({{
                         O0 = PseudoInst::readfile(xc->tcBase(), O0, O1, O2);
                     }}, IsNonSpeculative);
@@ -1434,14 +1435,14 @@ decode OP default Unknown::unknown()
                 }
             }
             0x3C: CasAlt::casa({{
-                               mem_data = htog(Rs2_uw);
+                               mem_data = htobe(Rs2_uw);
                                Mem_uw = Rd_uw;}},
                          {{
                                uint32_t tmp = mem_data;
                                Rd_uw = tmp;
                          }}, MEM_SWAP_COND);
             0x3D: Nop::prefetcha();
-            0x3E: CasAlt::casxa({{mem_data = gtoh(Rs2);
+            0x3E: CasAlt::casxa({{mem_data = betoh(Rs2);
                                 Mem_udw = Rd_udw; }},
                          {{ Rd_udw = mem_data; }}, MEM_SWAP_COND);
         }

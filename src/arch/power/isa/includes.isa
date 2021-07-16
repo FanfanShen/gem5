@@ -25,8 +25,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Timothy M. Jones
 
 ////////////////////////////////////////////////////////////////////
 //
@@ -54,9 +52,6 @@ using namespace PowerISA;
 
 output decoder {{
 #include <cmath>
-#if defined(linux)
-#include <fenv.h>
-#endif
 
 #include "arch/power/decoder.hh"
 #include "arch/power/faults.hh"
@@ -71,9 +66,6 @@ using namespace PowerISA;
 
 output exec {{
 #include <cmath>
-#if defined(linux)
-#include <fenv.h>
-#endif
 
 #include "arch/generic/memhelpers.hh"
 #include "arch/power/faults.hh"

@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __SYSTEMC_EXT_CHANNEL_SC_SIGNAL_HH__
@@ -96,6 +94,9 @@ class ScSignalBaseBinary : public ScSignalBase
 
     uint64_t _posStamp;
     uint64_t _negStamp;
+
+    void _signalPosedge();
+    void _signalNegedge();
 };
 
 template <class T>
@@ -357,15 +358,18 @@ class sc_signal<bool, WRITER_POLICY> :
             return;
 
         this->m_cur_val = this->m_new_val;
-        this->_signalReset();
         this->_signalChange();
-        if (this->m_cur_val) {
-            this->_posStamp = ::sc_gem5::getChangeStamp();
-            this->_posedgeEvent.notify(SC_ZERO_TIME);
-        } else {
-            this->_negStamp = ::sc_gem5::getChangeStamp();
-            this->_negedgeEvent.notify(SC_ZERO_TIME);
-        }
+    }
+
+    void
+    _signalChange()
+    {
+        sc_gem5::ScSignalBinary<bool, WRITER_POLICY>::_signalChange();
+        this->_signalReset();
+        if (this->m_cur_val)
+            this->_signalPosedge();
+        else
+            this->_signalNegedge();
     }
 
   private:
@@ -421,13 +425,17 @@ class sc_signal<sc_dt::sc_logic, WRITER_POLICY> :
 
         this->m_cur_val = this->m_new_val;
         this->_signalChange();
-        if (this->m_cur_val == sc_dt::SC_LOGIC_1) {
-            this->_posStamp = ::sc_gem5::getChangeStamp();
-            this->_posedgeEvent.notify(SC_ZERO_TIME);
-        } else if (this->m_cur_val == sc_dt::SC_LOGIC_0) {
-            this->_negStamp = ::sc_gem5::getChangeStamp();
-            this->_negedgeEvent.notify(SC_ZERO_TIME);
-        }
+    }
+
+    void
+    _signalChange()
+    {
+        sc_gem5::ScSignalBinary<sc_dt::sc_logic, WRITER_POLICY>::
+            _signalChange();
+        if (this->m_cur_val == sc_dt::SC_LOGIC_1)
+            this->_signalPosedge();
+        else if (this->m_cur_val == sc_dt::SC_LOGIC_0)
+            this->_signalNegedge();
     }
 
   private:

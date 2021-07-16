@@ -24,22 +24,22 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_POWER_DECODER_HH__
 #define __ARCH_POWER_DECODER_HH__
 
 #include "arch/generic/decode_cache.hh"
-#include "arch/types.hh"
+#include "arch/generic/decoder.hh"
+#include "arch/power/types.hh"
 #include "cpu/static_inst.hh"
+#include "debug/Decode.hh"
 
 namespace PowerISA
 {
 
 class ISA;
-class Decoder
+class Decoder : public InstDecoder
 {
   protected:
     // The extended machine instruction being generated
@@ -67,7 +67,7 @@ class Decoder
     void
     moreBytes(const PCState &pc, Addr fetchPC, MachInst inst)
     {
-        emi = inst;
+        emi = betoh(inst);
         instDone = true;
     }
 
@@ -95,7 +95,7 @@ class Decoder
 
   protected:
     /// A cache of decoded instruction objects.
-    static GenericISA::BasicDecodeCache defaultCache;
+    static GenericISA::BasicDecodeCache<Decoder, ExtMachInst> defaultCache;
 
   public:
     StaticInstPtr decodeInst(ExtMachInst mach_inst);
@@ -106,7 +106,10 @@ class Decoder
     StaticInstPtr
     decode(ExtMachInst mach_inst, Addr addr)
     {
-        return defaultCache.decode(this, mach_inst, addr);
+        StaticInstPtr si = defaultCache.decode(this, mach_inst, addr);
+        DPRINTF(Decode, "Decode: Decoded %s instruction: %#x\n",
+                si->getName(), mach_inst);
+        return si;
     }
 
     StaticInstPtr

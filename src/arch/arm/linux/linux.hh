@@ -37,17 +37,37 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Stephen Hines
  */
 
 #ifndef __ARCH_ARM_LINUX_LINUX_HH__
 #define __ARCH_ARM_LINUX_LINUX_HH__
 
+#include "arch/arm/utility.hh"
+#include "base/compiler.hh"
 #include "kern/linux/linux.hh"
 
-class ArmLinux32 : public Linux
+class ArmLinux : public Linux
+{
+  public:
+    static const ByteOrder byteOrder = ByteOrder::little;
+
+    static void
+    archClone(uint64_t flags,
+              Process *pp, Process *cp,
+              ThreadContext *ptc, ThreadContext *ctc,
+              uint64_t stack, uint64_t tls)
+    {
+        ArmISA::copyRegs(ptc, ctc);
+
+        if (flags & TGT_CLONE_SETTLS) {
+            /* TPIDR_EL0 is architecturally mapped to TPIDRURW, so
+             * this works for both aarch32 and aarch64. */
+            ctc->setMiscReg(ArmISA::MISCREG_TPIDR_EL0, tls);
+        }
+    }
+};
+
+class ArmLinux32 : public ArmLinux
 {
   public:
 
@@ -200,9 +220,9 @@ class ArmLinux32 : public Linux
         uint32_t  st_gid;
         uint64_t  st_rdev;
         uint8_t   __pad3[4];
-        int64_t   __attribute__ ((aligned (8))) st_size;
+        M5_ALIGNED(8) int64_t st_size;
         uint32_t  st_blksize;
-        uint64_t  __attribute__ ((aligned (8))) st_blocks;
+        M5_ALIGNED(8) uint64_t st_blocks;
         uint32_t  st_atimeX;
         uint32_t  st_atime_nsec;
         uint32_t  st_mtimeX;
@@ -254,9 +274,21 @@ class ArmLinux32 : public Linux
         int32_t tms_cutime;     //!< user time of children
         int32_t tms_cstime;     //!< system time of children
     };
+
+    static void
+    archClone(uint64_t flags,
+              Process *pp, Process *cp,
+              ThreadContext *ptc, ThreadContext *ctc,
+              uint64_t stack, uint64_t tls)
+    {
+        ArmLinux::archClone(flags, pp, cp, ptc, ctc, stack, tls);
+
+        if (stack)
+            ctc->setIntReg(ArmISA::INTREG_SP, stack);
+    }
 };
 
-class ArmLinux64 : public Linux
+class ArmLinux64 : public ArmLinux
 {
   public:
 
@@ -499,6 +531,17 @@ class ArmLinux64 : public Linux
         int64_t tms_cutime;     //!< user time of children
         int64_t tms_cstime;     //!< system time of children
     };
+
+    static void archClone(uint64_t flags,
+                          Process *pp, Process *cp,
+                          ThreadContext *ptc, ThreadContext *ctc,
+                          uint64_t stack, uint64_t tls)
+    {
+        ArmLinux::archClone(flags, pp, cp, ptc, ctc, stack, tls);
+
+        if (stack)
+            ctc->setIntReg(ArmISA::INTREG_SP0, stack);
+    }
 };
 
 #endif

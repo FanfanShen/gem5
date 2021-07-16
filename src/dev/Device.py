@@ -1,4 +1,4 @@
-# Copyright (c) 2012-2016 ARM Limited
+# Copyright (c) 2012-2016,2019-2020 ARM Limited
 # All rights reserved.
 #
 # The license below extends only to copyright in the software and shall
@@ -35,38 +35,36 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Nathan Binkert
-#          Glenn Bergmans
 
 from m5.params import *
 from m5.proxy import *
 from m5.util.fdthelper import *
-from MemObject import MemObject
 
-class PioDevice(MemObject):
+from m5.objects.ClockedObject import ClockedObject
+
+class PioDevice(ClockedObject):
     type = 'PioDevice'
     cxx_header = "dev/io_device.hh"
     abstract = True
-    pio = SlavePort("Programmed I/O port")
+    pio = ResponsePort("Programmed I/O port")
     system = Param.System(Parent.any, "System this device is part of")
 
     def generateBasicPioDeviceNode(self, state, name, pio_addr,
                                    size, interrupts = None):
-        node = FdtNode("%s@%x" % (name, long(pio_addr)))
+        node = FdtNode("%s@%x" % (name, int(pio_addr)))
         node.append(FdtPropertyWords("reg",
             state.addrCells(pio_addr) +
             state.sizeCells(size) ))
 
         if interrupts:
-            if any([i < 32 for i in interrupts]):
+            if any([i.num < 32 for i in interrupts]):
                 raise(("Interrupt number smaller than 32 "+
                        " in PioDevice %s") % name)
 
-            # subtracting 32 because Linux assumes that SPIs start at 0, while
-            # gem5 uses the internal GIC numbering (SPIs start at 32)
+            gic = self._parent.unproxy(self).gic
+
             node.append(FdtPropertyWords("interrupts", sum(
-                [[0, i  - 32, 4] for i in interrupts], []) ))
+                [ i.generateFdtProperty(gic) for i in interrupts], []) ))
 
         return node
 
@@ -81,8 +79,28 @@ class DmaDevice(PioDevice):
     type = 'DmaDevice'
     cxx_header = "dev/dma_device.hh"
     abstract = True
-    dma = MasterPort("DMA port")
+    dma = RequestPort("DMA port")
 
+    _iommu = None
+
+    sid = Param.Unsigned(0,
+        "Stream identifier used by an IOMMU to distinguish amongst "
+        "several devices attached to it")
+    ssid = Param.Unsigned(0,
+        "Substream identifier used by an IOMMU to distinguish amongst "
+        "several devices attached to it")
+
+    def addIommuProperty(self, state, node):
+        """
+        This method takes an FdtState and a FdtNode as parameters, and
+        it is appending a "iommus = <>" property in case the DmaDevice
+        is attached to an IOMMU.
+        This method is necessary for autogenerating a binding between
+        a dma device and the iommu.
+        """
+        if self._iommu is not None:
+            node.append(FdtPropertyWords("iommus",
+                [ state.phandle(self._iommu), self.sid ]))
 
 class IsaFake(BasicPioDevice):
     type = 'IsaFake'

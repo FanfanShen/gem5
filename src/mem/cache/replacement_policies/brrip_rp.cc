@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018 Inria
+ * Copyright (c) 2018-2020 Inria
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 #include "mem/cache/replacement_policies/brrip_rp.hh"
@@ -37,26 +35,28 @@
 #include "base/random.hh"
 #include "params/BRRIPRP.hh"
 
-BRRIPRP::BRRIPRP(const Params *p)
-    : BaseReplacementPolicy(p),
-      maxRRPV(p->max_RRPV), hitPriority(p->hit_priority), btp(p->btp)
+namespace ReplacementPolicy {
+
+BRRIP::BRRIP(const Params &p)
+  : Base(p), numRRPVBits(p.num_bits), hitPriority(p.hit_priority),
+    btp(p.btp)
 {
-    fatal_if(maxRRPV <= 0, "max_RRPV should be greater than zero.\n");
+    fatal_if(numRRPVBits <= 0, "There should be at least one bit per RRPV.\n");
 }
 
 void
-BRRIPRP::invalidate(const std::shared_ptr<ReplacementData>& replacement_data)
+BRRIP::invalidate(const std::shared_ptr<ReplacementData>& replacement_data)
 const
 {
     std::shared_ptr<BRRIPReplData> casted_replacement_data =
         std::static_pointer_cast<BRRIPReplData>(replacement_data);
 
-    // Set RRPV to an invalid distance
-    casted_replacement_data->rrpv = maxRRPV + 1;
+    // Invalidate entry
+    casted_replacement_data->valid = false;
 }
 
 void
-BRRIPRP::touch(const std::shared_ptr<ReplacementData>& replacement_data) const
+BRRIP::touch(const std::shared_ptr<ReplacementData>& replacement_data) const
 {
     std::shared_ptr<BRRIPReplData> casted_replacement_data =
         std::static_pointer_cast<BRRIPReplData>(replacement_data);
@@ -65,14 +65,14 @@ BRRIPRP::touch(const std::shared_ptr<ReplacementData>& replacement_data) const
     // Every hit in HP mode makes the entry the last to be evicted, while
     // in FP mode a hit makes the entry less likely to be evicted
     if (hitPriority) {
-        casted_replacement_data->rrpv = 0;
-    } else if (casted_replacement_data->rrpv > 0) {
+        casted_replacement_data->rrpv.reset();
+    } else {
         casted_replacement_data->rrpv--;
     }
 }
 
 void
-BRRIPRP::reset(const std::shared_ptr<ReplacementData>& replacement_data) const
+BRRIP::reset(const std::shared_ptr<ReplacementData>& replacement_data) const
 {
     std::shared_ptr<BRRIPReplData> casted_replacement_data =
         std::static_pointer_cast<BRRIPReplData>(replacement_data);
@@ -80,15 +80,17 @@ BRRIPRP::reset(const std::shared_ptr<ReplacementData>& replacement_data) const
     // Reset RRPV
     // Replacement data is inserted as "long re-reference" if lower than btp,
     // "distant re-reference" otherwise
+    casted_replacement_data->rrpv.saturate();
     if (random_mt.random<unsigned>(1, 100) <= btp) {
-        casted_replacement_data->rrpv = maxRRPV-1;
-    } else {
-        casted_replacement_data->rrpv = maxRRPV;
+        casted_replacement_data->rrpv--;
     }
+
+    // Mark entry as ready to be used
+    casted_replacement_data->valid = true;
 }
 
 ReplaceableEntry*
-BRRIPRP::getVictim(const ReplacementCandidates& candidates) const
+BRRIP::getVictim(const ReplacementCandidates& candidates) const
 {
     // There must be at least one replacement candidate
     assert(candidates.size() > 0);
@@ -102,15 +104,18 @@ BRRIPRP::getVictim(const ReplacementCandidates& candidates) const
 
     // Visit all candidates to find victim
     for (const auto& candidate : candidates) {
-        // Get candidate's rrpv
-        int candidate_RRPV = std::static_pointer_cast<BRRIPReplData>(
-                                    candidate->replacementData)->rrpv;
+        std::shared_ptr<BRRIPReplData> candidate_repl_data =
+            std::static_pointer_cast<BRRIPReplData>(
+                candidate->replacementData);
 
         // Stop searching for victims if an invalid entry is found
-        if (candidate_RRPV == maxRRPV + 1) {
+        if (!candidate_repl_data->valid) {
             return candidate;
+        }
+
         // Update victim entry if necessary
-        } else if (candidate_RRPV > victim_RRPV) {
+        int candidate_RRPV = candidate_repl_data->rrpv;
+        if (candidate_RRPV > victim_RRPV) {
             victim = candidate;
             victim_RRPV = candidate_RRPV;
         }
@@ -118,7 +123,8 @@ BRRIPRP::getVictim(const ReplacementCandidates& candidates) const
 
     // Get difference of victim's RRPV to the highest possible RRPV in
     // order to update the RRPV of all the other entries accordingly
-    int diff = maxRRPV - victim_RRPV;
+    int diff = std::static_pointer_cast<BRRIPReplData>(
+        victim->replacementData)->rrpv.saturate();
 
     // No need to update RRPV if there is no difference
     if (diff > 0){
@@ -133,13 +139,9 @@ BRRIPRP::getVictim(const ReplacementCandidates& candidates) const
 }
 
 std::shared_ptr<ReplacementData>
-BRRIPRP::instantiateEntry()
+BRRIP::instantiateEntry()
 {
-    return std::shared_ptr<ReplacementData>(new BRRIPReplData(maxRRPV));
+    return std::shared_ptr<ReplacementData>(new BRRIPReplData(numRRPVBits));
 }
 
-BRRIPRP*
-BRRIPRPParams::create()
-{
-    return new BRRIPRP(this);
-}
+} // namespace ReplacementPolicy

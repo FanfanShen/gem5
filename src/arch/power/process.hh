@@ -25,36 +25,27 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stephen Hines
- *          Timothy M. Jones
  */
 
 #ifndef __POWER_PROCESS_HH__
 #define __POWER_PROCESS_HH__
 
-#include <string>
-#include <vector>
-
-#include "mem/page_table.hh"
 #include "sim/process.hh"
 
+namespace Loader
+{
 class ObjectFile;
+} // namespace Loader;
 
 class PowerProcess : public Process
 {
   protected:
-    PowerProcess(ProcessParams * params, ObjectFile *objFile);
-
-    void initState();
+    void initState() override;
 
   public:
+    PowerProcess(const ProcessParams &params, ::Loader::ObjectFile *objFile);
+
     void argsInit(int intSize, int pageSize);
-    PowerISA::IntReg getSyscallArg(ThreadContext *tc, int &i);
-    /// Explicitly import the otherwise hidden getSyscallArg
-    using Process::getSyscallArg;
-    void setSyscallArg(ThreadContext *tc, int i, PowerISA::IntReg val);
-    void setSyscallReturn(ThreadContext *tc, SyscallReturn return_value);
 };
 
 #endif // __POWER_PROCESS_HH__

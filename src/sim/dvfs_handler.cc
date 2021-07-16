@@ -33,10 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Vasileios Spiliopoulos
- *          Akash Bagdia
- *          Stephan Diestelhorst
  */
 
 #include "sim/dvfs_handler.hh"
@@ -44,12 +40,10 @@
 #include <set>
 #include <utility>
 
-#include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/DVFS.hh"
 #include "params/DVFSHandler.hh"
-#include "sim/clock_domain.hh"
-#include "sim/eventq_impl.hh"
+#include "sim/serialize.hh"
 #include "sim/stat_control.hh"
 #include "sim/voltage_domain.hh"
 
@@ -58,15 +52,15 @@
 // DVFSHandler methods implementation
 //
 
-DVFSHandler::DVFSHandler(const Params *p)
+DVFSHandler::DVFSHandler(const Params &p)
     : SimObject(p),
-      sysClkDomain(p->sys_clk_domain),
-      enableHandler(p->enable),
-      _transLatency(p->transition_latency)
+      sysClkDomain(p.sys_clk_domain),
+      enableHandler(p.enable),
+      _transLatency(p.transition_latency)
 {
     // Check supplied list of domains for sanity and add them to the
     // domain ID -> domain* hash
-    for (auto dit = p->domains.begin(); dit != p->domains.end(); ++dit) {
+    for (auto dit = p.domains.begin(); dit != p.domains.end(); ++dit) {
         SrcClockDomain *d = *dit;
         DomainID domain_id = d->domainID();
 
@@ -254,10 +248,4 @@ DVFSHandler::unserialize(CheckpointIn &cp)
             schedule(event, whens[i]);
     }
     UpdateEvent::dvfsHandler = this;
-}
-
-DVFSHandler*
-DVFSHandlerParams::create()
-{
-    return new DVFSHandler(this);
 }

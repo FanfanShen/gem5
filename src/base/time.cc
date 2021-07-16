@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 #include "base/time.hh"
@@ -39,8 +37,6 @@
 #include "config/use_posix_clock.hh"
 #include "sim/core.hh"
 #include "sim/serialize.hh"
-
-using namespace std;
 
 void
 Time::_set(bool monotonic)
@@ -70,8 +66,8 @@ Time::getTick() const
         static_cast<uint64_t>(nsec() * SimClock::Float::ns);
 }
 
-string
-Time::date(const string &format) const
+std::string
+Time::date(const std::string &format) const
 {
     time_t sec = this->sec();
     char buf[256];
@@ -91,7 +87,7 @@ Time::date(const string &format) const
     return buf;
 }
 
-string
+std::string
 Time::time() const
 {
     double time = double(*this);
@@ -100,7 +96,7 @@ Time::time() const
     double mins = fmod(all_mins, 60.0);
     double hours = floor(all_mins / 60.0);
 
-    stringstream str;
+    std::stringstream str;
 
     if (hours > 0.0) {
         if (hours < 10.0)

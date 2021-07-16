@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #include "tarmac_tracer.hh"
@@ -53,10 +51,10 @@ TarmacContext::tarmacCpuName() const
     return "cpu" + std::to_string(id);
 }
 
-TarmacTracer::TarmacTracer(const Params *p)
+TarmacTracer::TarmacTracer(const Params &p)
   : InstTracer(p),
-    startTick(p->start_tick),
-    endTick(p->end_tick)
+    startTick(p.start_tick),
+    endTick(p.end_tick)
 {
     // Wrong parameter setting: The trace end happens before the
     // trace start.
@@ -75,7 +73,7 @@ TarmacTracer::TarmacTracer(const Params *p)
 InstRecord *
 TarmacTracer::getInstRecord(Tick when, ThreadContext *tc,
                            const StaticInstPtr staticInst,
-                           TheISA::PCState pc,
+                           ArmISA::PCState pc,
                            const StaticInstPtr macroStaticInst)
 {
     // Check if we need to start tracing since we have passed the
@@ -95,9 +93,3 @@ TarmacTracer::getInstRecord(Tick when, ThreadContext *tc,
 }
 
 } // namespace Trace
-
-Trace::TarmacTracer *
-TarmacTracerParams::create()
-{
-    return new Trace::TarmacTracer(this);
-}

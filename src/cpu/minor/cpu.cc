@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 #include "cpu/minor/cpu.hh"
@@ -47,22 +45,23 @@
 #include "debug/MinorCPU.hh"
 #include "debug/Quiesce.hh"
 
-MinorCPU::MinorCPU(MinorCPUParams *params) :
+MinorCPU::MinorCPU(const MinorCPUParams &params) :
     BaseCPU(params),
-    threadPolicy(params->threadPolicy)
+    threadPolicy(params.threadPolicy),
+    stats(this)
 {
     /* This is only written for one thread at the moment */
     Minor::MinorThread *thread;
 
     for (ThreadID i = 0; i < numThreads; i++) {
         if (FullSystem) {
-            thread = new Minor::MinorThread(this, i, params->system,
-                    params->itb, params->dtb, params->isa[i]);
+            thread = new Minor::MinorThread(this, i, params.system,
+                    params.mmu, params.isa[i]);
             thread->setStatus(ThreadContext::Halted);
         } else {
-            thread = new Minor::MinorThread(this, i, params->system,
-                    params->workload[i], params->itb, params->dtb,
-                    params->isa[i]);
+            thread = new Minor::MinorThread(this, i, params.system,
+                    params.workload[i], params.mmu,
+                    params.isa[i]);
         }
 
         threads.push_back(thread);
@@ -71,19 +70,24 @@ MinorCPU::MinorCPU(MinorCPUParams *params) :
     }
 
 
-    if (params->checker) {
+    if (params.checker) {
         fatal("The Minor model doesn't support checking (yet)\n");
     }
 
     Minor::MinorDynInst::init();
 
-    pipeline = new Minor::Pipeline(*this, *params);
+    pipeline = new Minor::Pipeline(*this, params);
     activityRecorder = pipeline->getActivityRecorder();
+
+    fetchEventWrapper = NULL;
 }
 
 MinorCPU::~MinorCPU()
 {
     delete pipeline;
+
+    if (fetchEventWrapper != NULL)
+        delete fetchEventWrapper;
 
     for (ThreadID thread_id = 0; thread_id < threads.size(); thread_id++) {
         delete threads[thread_id];
@@ -95,7 +99,7 @@ MinorCPU::init()
 {
     BaseCPU::init();
 
-    if (!params()->switched_out &&
+    if (!params().switched_out &&
         system->getMemoryMode() != Enums::timing)
     {
         fatal("The Minor CPU requires the memory system to be in "
@@ -108,17 +112,6 @@ MinorCPU::init()
 
         tc->initMemProxies(tc);
     }
-
-    /* Initialise CPUs (== threads in the ISA) */
-    if (FullSystem && !params()->switched_out) {
-        for (ThreadID thread_id = 0; thread_id < threads.size(); thread_id++)
-        {
-            ThreadContext *tc = getContext(thread_id);
-
-            /* Initialize CPU, including PC */
-            TheISA::initCPU(tc, cpuId());
-        }
-    }
 }
 
 /** Stats interface from SimObject (by way of BaseCPU) */
@@ -126,7 +119,6 @@ void
 MinorCPU::regStats()
 {
     BaseCPU::regStats();
-    stats.regStats(name(), *this);
     pipeline->regStats();
 }
 
@@ -156,15 +148,6 @@ MinorCPU::unserialize(CheckpointIn &cp)
     BaseCPU::unserialize(cp);
 }
 
-Addr
-MinorCPU::dbg_vtophys(Addr addr)
-{
-    /* Note that this gives you the translation for thread 0 */
-    panic("No implementation for vtophy\n");
-
-    return 0;
-}
-
 void
 MinorCPU::wakeup(ThreadID tid)
 {
@@ -183,10 +166,8 @@ MinorCPU::startup()
 
     BaseCPU::startup();
 
-    for (ThreadID tid = 0; tid < numThreads; tid++) {
-        threads[tid]->startup();
+    for (ThreadID tid = 0; tid < numThreads; tid++)
         pipeline->wakeupFetch(tid);
-    }
 }
 
 DrainState
@@ -290,7 +271,17 @@ MinorCPU::activateContext(ThreadID thread_id)
     /* Wake up the thread, wakeup the pipeline tick */
     threads[thread_id]->activate();
     wakeupOnEvent(Minor::Pipeline::CPUStageId);
-    pipeline->wakeupFetch(thread_id);
+
+    if (!threads[thread_id]->getUseForClone())//the thread is not cloned
+    {
+        pipeline->wakeupFetch(thread_id);
+    } else { //the thread from clone
+        if (fetchEventWrapper != NULL)
+            delete fetchEventWrapper;
+        fetchEventWrapper = new EventFunctionWrapper([this, thread_id]
+                  { pipeline->wakeupFetch(thread_id); }, "wakeupFetch");
+        schedule(*fetchEventWrapper, clockEdge(Cycles(0)));
+    }
 
     BaseCPU::activateContext(thread_id);
 }
@@ -315,18 +306,14 @@ MinorCPU::wakeupOnEvent(unsigned int stage_id)
     pipeline->start();
 }
 
-MinorCPU *
-MinorCPUParams::create()
-{
-    return new MinorCPU(this);
-}
-
-MasterPort &MinorCPU::getInstPort()
+Port &
+MinorCPU::getInstPort()
 {
     return pipeline->getInstPort();
 }
 
-MasterPort &MinorCPU::getDataPort()
+Port &
+MinorCPU::getDataPort()
 {
     return pipeline->getDataPort();
 }

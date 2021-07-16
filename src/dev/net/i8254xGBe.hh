@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 /* @file
@@ -35,11 +33,13 @@
 #ifndef __DEV_NET_I8254XGBE_HH__
 #define __DEV_NET_I8254XGBE_HH__
 
+#include <cstdint>
 #include <deque>
 #include <string>
 
-#include "base/cp_annotate.hh"
 #include "base/inet.hh"
+#include "base/trace.hh"
+#include "base/types.hh"
 #include "debug/EthernetDesc.hh"
 #include "debug/EthernetIntr.hh"
 #include "dev/net/etherdevice.hh"
@@ -50,6 +50,7 @@
 #include "dev/pci/device.hh"
 #include "params/IGbE.hh"
 #include "sim/eventq.hh"
+#include "sim/serialize.hh"
 
 class IGbEInt;
 
@@ -57,7 +58,6 @@ class IGbE : public EtherDevice
 {
   private:
     IGbEInt *etherInt;
-    CPA *cpa;
 
     // device registers
     iGbReg::Regs regs;
@@ -173,42 +173,6 @@ class IGbE : public EtherDevice
      * handle the drain event if so.
      */
     void checkDrain();
-
-    void anBegin(std::string sm, std::string st, int flags = CPA::FL_NONE) {
-        if (cpa)
-            cpa->hwBegin((CPA::flags)flags, sys, macAddr, sm, st);
-    }
-
-    void anQ(std::string sm, std::string q) {
-        if (cpa)
-            cpa->hwQ(CPA::FL_NONE, sys, macAddr, sm, q, macAddr);
-    }
-
-    void anDq(std::string sm, std::string q) {
-        if (cpa)
-            cpa->hwDq(CPA::FL_NONE, sys, macAddr, sm, q, macAddr);
-    }
-
-    void anPq(std::string sm, std::string q, int num = 1) {
-        if (cpa)
-            cpa->hwPq(CPA::FL_NONE, sys, macAddr, sm, q, macAddr, NULL, num);
-    }
-
-    void anRq(std::string sm, std::string q, int num = 1) {
-        if (cpa)
-            cpa->hwRq(CPA::FL_NONE, sys, macAddr, sm, q, macAddr, NULL, num);
-    }
-
-    void anWe(std::string sm, std::string q) {
-        if (cpa)
-            cpa->hwWe(CPA::FL_NONE, sys, macAddr, sm, q, macAddr);
-    }
-
-    void anWf(std::string sm, std::string q) {
-        if (cpa)
-            cpa->hwWf(CPA::FL_NONE, sys, macAddr, sm, q, macAddr);
-    }
-
 
     template<class T>
     class DescCache : public Serializable
@@ -509,17 +473,14 @@ class IGbE : public EtherDevice
     TxDescCache txDescCache;
 
   public:
-    typedef IGbEParams Params;
-    const Params *
-    params() const {
-        return dynamic_cast<const Params *>(_params);
-    }
+    PARAMS(IGbE);
 
-    IGbE(const Params *params);
+    IGbE(const Params &params);
     ~IGbE();
     void init() override;
 
-    EtherInt *getEthPort(const std::string &if_name, int idx) override;
+    Port &getPort(const std::string &if_name,
+                  PortID idx=InvalidPortID) override;
 
     Tick lastInterrupt;
 

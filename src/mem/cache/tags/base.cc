@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013,2016,2018 ARM Limited
+ * Copyright (c) 2013,2016,2018-2019 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Ron Dreslinski
  */
 
 /**
@@ -58,14 +55,16 @@
 #include "sim/sim_exit.hh"
 #include "sim/system.hh"
 
-BaseTags::BaseTags(const Params *p)
-    : ClockedObject(p), blkSize(p->block_size), blkMask(blkSize - 1),
-      size(p->size), lookupLatency(p->tag_latency),
-      system(p->system), indexingPolicy(p->indexing_policy),
-      warmupBound((p->warmup_percentage/100.0) * (p->size / p->block_size)),
-      warmedUp(false), numBlocks(p->size / p->block_size),
-      dataBlks(new uint8_t[p->size]) // Allocate data storage in one big chunk
+BaseTags::BaseTags(const Params &p)
+    : ClockedObject(p), blkSize(p.block_size), blkMask(blkSize - 1),
+      size(p.size), lookupLatency(p.tag_latency),
+      system(p.system), indexingPolicy(p.indexing_policy),
+      warmupBound((p.warmup_percentage/100.0) * (p.size / p.block_size)),
+      warmedUp(false), numBlocks(p.size / p.block_size),
+      dataBlks(new uint8_t[p.size]), // Allocate data storage in one big chunk
+      stats(*this)
 {
+    registerExitCallback([this]() { cleanupRefs(); });
 }
 
 ReplaceableEntry*
@@ -87,8 +86,7 @@ BaseTags::findBlock(Addr addr, bool is_secure) const
     // Search for block
     for (const auto& location : entries) {
         CacheBlk* blk = static_cast<CacheBlk*>(location);
-        if ((blk->tag == tag) && blk->isValid() &&
-            (blk->isSecure() == is_secure)) {
+        if (blk->matchTag(tag, is_secure)) {
             return blk;
         }
     }
@@ -98,30 +96,44 @@ BaseTags::findBlock(Addr addr, bool is_secure) const
 }
 
 void
-BaseTags::insertBlock(const Addr addr, const bool is_secure,
-                      const int src_master_ID, const uint32_t task_ID,
-                      CacheBlk *blk)
+BaseTags::insertBlock(const PacketPtr pkt, CacheBlk *blk)
 {
     assert(!blk->isValid());
 
     // Previous block, if existed, has been removed, and now we have
     // to insert the new one
-    // Deal with what we are bringing in
-    assert(src_master_ID < system->maxMasters());
-    occupancies[src_master_ID]++;
 
-    // Insert block with tag, src master id and task id
-    blk->insert(extractTag(addr), is_secure, src_master_ID, task_ID);
+    // Deal with what we are bringing in
+    RequestorID requestor_id = pkt->req->requestorId();
+    assert(requestor_id < system->maxRequestors());
+    stats.occupancies[requestor_id]++;
+
+    // Insert block with tag, src requestor id and task id
+    blk->insert(extractTag(pkt->getAddr()), pkt->isSecure(), requestor_id,
+                pkt->req->taskId());
 
     // Check if cache warm up is done
-    if (!warmedUp && tagsInUse.value() >= warmupBound) {
+    if (!warmedUp && stats.tagsInUse.value() >= warmupBound) {
         warmedUp = true;
-        warmupCycle = curTick();
+        stats.warmupTick = curTick();
     }
 
     // We only need to write into one tag and one data block.
-    tagAccesses += 1;
-    dataAccesses += 1;
+    stats.tagAccesses += 1;
+    stats.dataAccesses += 1;
+}
+
+void
+BaseTags::moveBlock(CacheBlk *src_blk, CacheBlk *dest_blk)
+{
+    assert(!dest_blk->isValid());
+    assert(src_blk->isValid());
+
+    // Move src's contents to dest's
+    *dest_blk = std::move(*src_blk);
+
+    assert(dest_blk->isValid());
+    assert(!src_blk->isValid());
 }
 
 Addr
@@ -134,8 +146,8 @@ void
 BaseTags::cleanupRefsVisitor(CacheBlk &blk)
 {
     if (blk.isValid()) {
-        totalRefs += blk.refCount;
-        ++sampledRefs;
+        stats.totalRefs += blk.getRefCount();
+        ++stats.sampledRefs;
     }
 }
 
@@ -149,10 +161,10 @@ void
 BaseTags::computeStatsVisitor(CacheBlk &blk)
 {
     if (blk.isValid()) {
-        assert(blk.task_id < ContextSwitchTaskId::NumTaskId);
-        occupanciesTaskId[blk.task_id]++;
-        assert(blk.tickInserted <= curTick());
-        Tick age = curTick() - blk.tickInserted;
+        const uint32_t task_id = blk.getTaskId();
+        assert(task_id < ContextSwitchTaskId::NumTaskId);
+        stats.occupanciesTaskId[task_id]++;
+        Tick age = blk.getAge();
 
         int age_index;
         if (age / SimClock::Int::us < 10) { // <10us
@@ -166,7 +178,7 @@ BaseTags::computeStatsVisitor(CacheBlk &blk)
         } else
             age_index = 4; // >10ms
 
-        ageTaskId[blk.task_id][age_index]++;
+        stats.ageTaskId[task_id][age_index]++;
     }
 }
 
@@ -174,9 +186,9 @@ void
 BaseTags::computeStats()
 {
     for (unsigned i = 0; i < ContextSwitchTaskId::NumTaskId; ++i) {
-        occupanciesTaskId[i] = 0;
+        stats.occupanciesTaskId[i] = 0;
         for (unsigned j = 0; j < 5; ++j) {
-            ageTaskId[i][j] = 0;
+            stats.ageTaskId[i][j] = 0;
         }
     }
 
@@ -200,93 +212,79 @@ BaseTags::print()
     return str;
 }
 
-void
-BaseTags::regStats()
-{
-    ClockedObject::regStats();
+BaseTags::BaseTagStats::BaseTagStats(BaseTags &_tags)
+    : Stats::Group(&_tags),
+    tags(_tags),
 
+    ADD_STAT(tagsInUse, UNIT_RATE(Stats::Units::Tick, Stats::Units::Count),
+             "Average ticks per tags in use"),
+    ADD_STAT(totalRefs, UNIT_COUNT,
+             "Total number of references to valid blocks."),
+    ADD_STAT(sampledRefs, UNIT_COUNT,
+             "Sample count of references to valid blocks."),
+    ADD_STAT(avgRefs, UNIT_RATE(Stats::Units::Count, Stats::Units::Count),
+             "Average number of references to valid blocks."),
+    ADD_STAT(warmupTick, UNIT_TICK,
+             "The tick when the warmup percentage was hit."),
+    ADD_STAT(occupancies, UNIT_RATE(Stats::Units::Count, Stats::Units::Tick),
+             "Average occupied blocks per tick, per requestor"),
+    ADD_STAT(avgOccs, UNIT_RATE(Stats::Units::Ratio, Stats::Units::Tick),
+             "Average percentage of cache occupancy"),
+    ADD_STAT(occupanciesTaskId, UNIT_COUNT, "Occupied blocks per task id"),
+    ADD_STAT(ageTaskId, UNIT_COUNT,
+             "Occupied blocks per task id, per block age"),
+    ADD_STAT(ratioOccsTaskId, UNIT_RATIO,
+             "Ratio of occupied blocks and all blocks, per task id"),
+    ADD_STAT(tagAccesses, UNIT_COUNT, "Number of tag accesses"),
+    ADD_STAT(dataAccesses, UNIT_COUNT, "Number of data accesses")
+{
+}
+
+void
+BaseTags::BaseTagStats::regStats()
+{
     using namespace Stats;
 
-    tagsInUse
-        .name(name() + ".tagsinuse")
-        .desc("Cycle average of tags in use")
-        ;
+    Stats::Group::regStats();
 
-    totalRefs
-        .name(name() + ".total_refs")
-        .desc("Total number of references to valid blocks.")
-        ;
+    System *system = tags.system;
 
-    sampledRefs
-        .name(name() + ".sampled_refs")
-        .desc("Sample count of references to valid blocks.")
-        ;
-
-    avgRefs
-        .name(name() + ".avg_refs")
-        .desc("Average number of references to valid blocks.")
-        ;
-
-    avgRefs = totalRefs/sampledRefs;
-
-    warmupCycle
-        .name(name() + ".warmup_cycle")
-        .desc("Cycle when the warmup percentage was hit.")
-        ;
+    avgRefs = totalRefs / sampledRefs;
 
     occupancies
-        .init(system->maxMasters())
-        .name(name() + ".occ_blocks")
-        .desc("Average occupied blocks per requestor")
+        .init(system->maxRequestors())
         .flags(nozero | nonan)
         ;
-    for (int i = 0; i < system->maxMasters(); i++) {
-        occupancies.subname(i, system->getMasterName(i));
+    for (int i = 0; i < system->maxRequestors(); i++) {
+        occupancies.subname(i, system->getRequestorName(i));
     }
 
-    avgOccs
-        .name(name() + ".occ_percent")
-        .desc("Average percentage of cache occupancy")
-        .flags(nozero | total)
-        ;
-    for (int i = 0; i < system->maxMasters(); i++) {
-        avgOccs.subname(i, system->getMasterName(i));
+    avgOccs.flags(nozero | total);
+    for (int i = 0; i < system->maxRequestors(); i++) {
+        avgOccs.subname(i, system->getRequestorName(i));
     }
 
-    avgOccs = occupancies / Stats::constant(numBlocks);
+    avgOccs = occupancies / Stats::constant(tags.numBlocks);
 
     occupanciesTaskId
         .init(ContextSwitchTaskId::NumTaskId)
-        .name(name() + ".occ_task_id_blocks")
-        .desc("Occupied blocks per task id")
         .flags(nozero | nonan)
         ;
 
     ageTaskId
         .init(ContextSwitchTaskId::NumTaskId, 5)
-        .name(name() + ".age_task_id_blocks")
-        .desc("Occupied blocks per task id")
         .flags(nozero | nonan)
         ;
 
-    percentOccsTaskId
-        .name(name() + ".occ_task_id_percent")
-        .desc("Percentage of cache occupancy per task id")
-        .flags(nozero)
-        ;
+    ratioOccsTaskId.flags(nozero);
 
-    percentOccsTaskId = occupanciesTaskId / Stats::constant(numBlocks);
+    ratioOccsTaskId = occupanciesTaskId / Stats::constant(tags.numBlocks);
+}
 
-    tagAccesses
-        .name(name() + ".tag_accesses")
-        .desc("Number of tag accesses")
-        ;
+void
+BaseTags::BaseTagStats::preDumpStats()
+{
+    Stats::Group::preDumpStats();
 
-    dataAccesses
-        .name(name() + ".data_accesses")
-        .desc("Number of data accesses")
-        ;
-
-    registerDumpCallback(new BaseTagsDumpCallback(this));
-    registerExitCallback(new BaseTagsCallback(this));
+    tags.computeStats();
 }

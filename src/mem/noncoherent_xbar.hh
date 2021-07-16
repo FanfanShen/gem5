@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2015 ARM Limited
+ * Copyright (c) 2011-2015, 2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,11 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ron Dreslinski
- *          Ali Saidi
- *          Andreas Hansson
- *          William Wang
  */
 
 /**
@@ -55,13 +50,13 @@
 #include "params/NoncoherentXBar.hh"
 
 /**
- * A non-coherent crossbar connects a number of non-snooping masters
- * and slaves, and routes the request and response packets based on
- * the address. The request packets issued by the master connected to
+ * A non-coherent crossbar connects a number of non-snooping memory-side ports
+ * and cpu_sides, and routes the request and response packets based on
+ * the address. The request packets issued by the memory-side port connected to
  * a non-coherent crossbar could still snoop in caches attached to a
  * coherent crossbar, as is the case with the I/O bus and memory bus
  * in most system configurations. No snoops will, however, reach any
- * master on the non-coherent crossbar itself.
+ * memory-side port on the non-coherent crossbar itself.
  *
  * The non-coherent crossbar can be used as a template for modelling
  * PCIe, and non-coherent AMBA and OCP buses, and is typically used
@@ -80,11 +75,11 @@ class NoncoherentXBar : public BaseXBar
     std::vector<RespLayer*> respLayers;
 
     /**
-     * Declaration of the non-coherent crossbar slave port type, one
-     * will be instantiated for each of the master ports connecting to
+     * Declaration of the non-coherent crossbar CPU-side port type, one
+     * will be instantiated for each of the memory-side ports connecting to
      * the crossbar.
      */
-    class NoncoherentXBarSlavePort : public QueuedSlavePort
+    class NoncoherentXBarResponsePort : public QueuedResponsePort
     {
       private:
 
@@ -96,46 +91,51 @@ class NoncoherentXBar : public BaseXBar
 
       public:
 
-        NoncoherentXBarSlavePort(const std::string &_name,
+        NoncoherentXBarResponsePort(const std::string &_name,
                                 NoncoherentXBar &_xbar, PortID _id)
-            : QueuedSlavePort(_name, &_xbar, queue, _id), xbar(_xbar),
+            : QueuedResponsePort(_name, &_xbar, queue, _id), xbar(_xbar),
               queue(_xbar, *this)
         { }
 
       protected:
 
-        /**
-         * When receiving a timing request, pass it to the crossbar.
-         */
-        virtual bool recvTimingReq(PacketPtr pkt)
-        { return xbar.recvTimingReq(pkt, id); }
+        bool
+        recvTimingReq(PacketPtr pkt) override
+        {
+            return xbar.recvTimingReq(pkt, id);
+        }
 
-        /**
-         * When receiving an atomic request, pass it to the crossbar.
-         */
-        virtual Tick recvAtomic(PacketPtr pkt)
-        { return xbar.recvAtomic(pkt, id); }
+        Tick
+        recvAtomic(PacketPtr pkt) override
+        {
+            return xbar.recvAtomicBackdoor(pkt, id);
+        }
 
-        /**
-         * When receiving a functional request, pass it to the crossbar.
-         */
-        virtual void recvFunctional(PacketPtr pkt)
-        { xbar.recvFunctional(pkt, id); }
+        Tick
+        recvAtomicBackdoor(PacketPtr pkt, MemBackdoorPtr &backdoor) override
+        {
+            return xbar.recvAtomicBackdoor(pkt, id, &backdoor);
+        }
 
-        /**
-         * Return the union of all adress ranges seen by this crossbar.
-         */
-        virtual AddrRangeList getAddrRanges() const
-        { return xbar.getAddrRanges(); }
+        void
+        recvFunctional(PacketPtr pkt) override
+        {
+            xbar.recvFunctional(pkt, id);
+        }
 
+        AddrRangeList
+        getAddrRanges() const override
+        {
+            return xbar.getAddrRanges();
+        }
     };
 
     /**
-     * Declaration of the crossbar master port type, one will be
-     * instantiated for each of the slave ports connecting to the
+     * Declaration of the crossbar memory-side port type, one will be
+     * instantiated for each of the CPU-side ports connecting to the
      * crossbar.
      */
-    class NoncoherentXBarMasterPort : public MasterPort
+    class NoncoherentXBarRequestPort : public RequestPort
     {
       private:
 
@@ -144,62 +144,44 @@ class NoncoherentXBar : public BaseXBar
 
       public:
 
-        NoncoherentXBarMasterPort(const std::string &_name,
+        NoncoherentXBarRequestPort(const std::string &_name,
                                  NoncoherentXBar &_xbar, PortID _id)
-            : MasterPort(_name, &_xbar, _id), xbar(_xbar)
+            : RequestPort(_name, &_xbar, _id), xbar(_xbar)
         { }
 
       protected:
 
-        /**
-         * When receiving a timing response, pass it to the crossbar.
-         */
-        virtual bool recvTimingResp(PacketPtr pkt)
-        { return xbar.recvTimingResp(pkt, id); }
+        bool
+        recvTimingResp(PacketPtr pkt) override
+        {
+            return xbar.recvTimingResp(pkt, id);
+        }
 
-        /** When reciving a range change from the peer port (at id),
-            pass it to the crossbar. */
-        virtual void recvRangeChange()
-        { xbar.recvRangeChange(id); }
+        void
+        recvRangeChange() override
+        {
+            xbar.recvRangeChange(id);
+        }
 
-        /** When reciving a retry from the peer port (at id),
-            pass it to the crossbar. */
-        virtual void recvReqRetry()
-        { xbar.recvReqRetry(id); }
-
+        void
+        recvReqRetry() override
+        {
+            xbar.recvReqRetry(id);
+        }
     };
 
-    /** Function called by the port when the crossbar is recieving a Timing
-      request packet.*/
-    virtual bool recvTimingReq(PacketPtr pkt, PortID slave_port_id);
-
-    /** Function called by the port when the crossbar is recieving a Timing
-      response packet.*/
-    virtual bool recvTimingResp(PacketPtr pkt, PortID master_port_id);
-
-    /** Timing function called by port when it is once again able to process
-     * requests. */
-    void recvReqRetry(PortID master_port_id);
-
-    /** Function called by the port when the crossbar is recieving a Atomic
-      transaction.*/
-    Tick recvAtomic(PacketPtr pkt, PortID slave_port_id);
-
-    /** Function called by the port when the crossbar is recieving a Functional
-        transaction.*/
-    void recvFunctional(PacketPtr pkt, PortID slave_port_id);
+    virtual bool recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id);
+    virtual bool recvTimingResp(PacketPtr pkt, PortID mem_side_port_id);
+    void recvReqRetry(PortID mem_side_port_id);
+    Tick recvAtomicBackdoor(PacketPtr pkt, PortID cpu_side_port_id,
+                            MemBackdoorPtr *backdoor=nullptr);
+    void recvFunctional(PacketPtr pkt, PortID cpu_side_port_id);
 
   public:
 
-    NoncoherentXBar(const NoncoherentXBarParams *p);
+    NoncoherentXBar(const NoncoherentXBarParams &p);
 
     virtual ~NoncoherentXBar();
-
-    /**
-     * stats
-     */
-    virtual void regStats();
-    Stats::Scalar totPktSize;
 };
 
 #endif //__MEM_NONCOHERENT_XBAR_HH__

@@ -25,12 +25,8 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Ali Saidi
- *          Korey Sewell
- *          Alec Roelke
  */
+
 #include "arch/riscv/process.hh"
 
 #include <algorithm>
@@ -58,89 +54,121 @@
 #include "sim/syscall_return.hh"
 #include "sim/system.hh"
 
-using namespace std;
 using namespace RiscvISA;
 
-RiscvProcess::RiscvProcess(ProcessParams *params, ObjectFile *objFile) :
+RiscvProcess::RiscvProcess(const ProcessParams &params,
+        ::Loader::ObjectFile *objFile) :
         Process(params,
-                new EmulationPageTable(params->name, params->pid, PageBytes),
+                new EmulationPageTable(params.name, params.pid, PageBytes),
                 objFile)
 {
-    fatal_if(params->useArchPT, "Arch page tables not implemented.");
+    fatal_if(params.useArchPT, "Arch page tables not implemented.");
+}
+
+RiscvProcess64::RiscvProcess64(const ProcessParams &params,
+        ::Loader::ObjectFile *objFile) :
+        RiscvProcess(params, objFile)
+{
     const Addr stack_base = 0x7FFFFFFFFFFFFFFFL;
     const Addr max_stack_size = 8 * 1024 * 1024;
     const Addr next_thread_stack_base = stack_base - max_stack_size;
-    const Addr brk_point = roundUp(objFile->bssBase() + objFile->bssSize(),
-            PageBytes);
+    const Addr brk_point = roundUp(image.maxAddr(), PageBytes);
     const Addr mmap_end = 0x4000000000000000L;
-    memState = make_shared<MemState>(brk_point, stack_base, max_stack_size,
-            next_thread_stack_base, mmap_end);
+    memState = std::make_shared<MemState>(this, brk_point, stack_base,
+            max_stack_size, next_thread_stack_base, mmap_end);
+}
+
+RiscvProcess32::RiscvProcess32(const ProcessParams &params,
+        ::Loader::ObjectFile *objFile) :
+        RiscvProcess(params, objFile)
+{
+    const Addr stack_base = 0x7FFFFFFF;
+    const Addr max_stack_size = 8 * 1024 * 1024;
+    const Addr next_thread_stack_base = stack_base - max_stack_size;
+    const Addr brk_point = roundUp(image.maxAddr(), PageBytes);
+    const Addr mmap_end = 0x40000000L;
+    memState = std::make_shared<MemState>(this, brk_point, stack_base,
+            max_stack_size, next_thread_stack_base, mmap_end);
 }
 
 void
-RiscvProcess::initState()
+RiscvProcess64::initState()
 {
     Process::initState();
 
     argsInit<uint64_t>(PageBytes);
     for (ContextID ctx: contextIds)
-        system->getThreadContext(ctx)->setMiscRegNoEffect(MISCREG_PRV, PRV_U);
+        system->threads[ctx]->setMiscRegNoEffect(MISCREG_PRV, PRV_U);
+}
+
+void
+RiscvProcess32::initState()
+{
+    Process::initState();
+
+    argsInit<uint32_t>(PageBytes);
+    for (ContextID ctx: contextIds) {
+        auto *tc = system->threads[ctx];
+        tc->setMiscRegNoEffect(MISCREG_PRV, PRV_U);
+        PCState pc = tc->pcState();
+        pc.rv32(true);
+        tc->pcState(pc);
+    }
 }
 
 template<class IntType> void
 RiscvProcess::argsInit(int pageSize)
 {
     const int RandomBytes = 16;
+    const int addrSize = sizeof(IntType);
 
-    updateBias();
-    objFile->loadSections(initVirtMem);
-    ElfObject* elfObject = dynamic_cast<ElfObject*>(objFile);
+    auto *elfObject = dynamic_cast<::Loader::ElfObject*>(objFile);
     memState->setStackMin(memState->getStackBase());
 
     // Determine stack size and populate auxv
     Addr stack_top = memState->getStackMin();
     stack_top -= RandomBytes;
-    for (const string& arg: argv)
+    for (const std::string& arg: argv)
         stack_top -= arg.size() + 1;
-    for (const string& env: envp)
+    for (const std::string& env: envp)
         stack_top -= env.size() + 1;
-    stack_top &= -sizeof(Addr);
+    stack_top &= -addrSize;
 
-    vector<AuxVector<IntType>> auxv;
+    std::vector<AuxVector<IntType>> auxv;
     if (elfObject != nullptr) {
-        auxv.push_back({M5_AT_ENTRY, objFile->entryPoint()});
-        auxv.push_back({M5_AT_PHNUM, elfObject->programHeaderCount()});
-        auxv.push_back({M5_AT_PHENT, elfObject->programHeaderSize()});
-        auxv.push_back({M5_AT_PHDR, elfObject->programHeaderTable()});
-        auxv.push_back({M5_AT_PAGESZ, PageBytes});
-        auxv.push_back({M5_AT_SECURE, 0});
-        auxv.push_back({M5_AT_RANDOM, stack_top});
-        auxv.push_back({M5_AT_NULL, 0});
+        auxv.emplace_back(M5_AT_ENTRY, objFile->entryPoint());
+        auxv.emplace_back(M5_AT_PHNUM, elfObject->programHeaderCount());
+        auxv.emplace_back(M5_AT_PHENT, elfObject->programHeaderSize());
+        auxv.emplace_back(M5_AT_PHDR, elfObject->programHeaderTable());
+        auxv.emplace_back(M5_AT_PAGESZ, PageBytes);
+        auxv.emplace_back(M5_AT_SECURE, 0);
+        auxv.emplace_back(M5_AT_RANDOM, stack_top);
+        auxv.emplace_back(M5_AT_NULL, 0);
     }
-    stack_top -= (1 + argv.size()) * sizeof(Addr) +
-                   (1 + envp.size()) * sizeof(Addr) +
-                   sizeof(Addr) + 2 * sizeof(IntType) * auxv.size();
-    stack_top &= -2*sizeof(Addr);
+    stack_top -= (1 + argv.size()) * addrSize +
+                   (1 + envp.size()) * addrSize +
+                   addrSize + 2 * sizeof(IntType) * auxv.size();
+    stack_top &= -2*addrSize;
     memState->setStackSize(memState->getStackBase() - stack_top);
-    allocateMem(roundDown(stack_top, pageSize),
-            roundUp(memState->getStackSize(), pageSize));
+    memState->mapRegion(roundDown(stack_top, pageSize),
+                        roundUp(memState->getStackSize(), pageSize), "stack");
 
     // Copy random bytes (for AT_RANDOM) to stack
     memState->setStackMin(memState->getStackMin() - RandomBytes);
     uint8_t at_random[RandomBytes];
-    generate(begin(at_random), end(at_random),
-             [&]{ return random_mt.random(0, 0xFF); });
-    initVirtMem.writeBlob(memState->getStackMin(), at_random, RandomBytes);
+    std::generate(std::begin(at_random), std::end(at_random),
+                  [&]{ return random_mt.random(0, 0xFF); });
+    initVirtMem->writeBlob(memState->getStackMin(), at_random, RandomBytes);
 
     // Copy argv to stack
-    vector<Addr> argPointers;
-    for (const string& arg: argv) {
+    std::vector<Addr> argPointers;
+    for (const std::string& arg: argv) {
         memState->setStackMin(memState->getStackMin() - (arg.size() + 1));
-        initVirtMem.writeString(memState->getStackMin(), arg.c_str());
+        initVirtMem->writeString(memState->getStackMin(), arg.c_str());
         argPointers.push_back(memState->getStackMin());
         if (DTRACE(Stack)) {
-            string wrote;
-            initVirtMem.readString(wrote, argPointers.back());
+            std::string wrote;
+            initVirtMem->readString(wrote, argPointers.back());
             DPRINTFN("Wrote arg \"%s\" to address %p\n",
                     wrote, (void*)memState->getStackMin());
         }
@@ -148,10 +176,10 @@ RiscvProcess::argsInit(int pageSize)
     argPointers.push_back(0);
 
     // Copy envp to stack
-    vector<Addr> envPointers;
-    for (const string& env: envp) {
+    std::vector<Addr> envPointers;
+    for (const std::string& env: envp) {
         memState->setStackMin(memState->getStackMin() - (env.size() + 1));
-        initVirtMem.writeString(memState->getStackMin(), env.c_str());
+        initVirtMem->writeString(memState->getStackMin(), env.c_str());
         envPointers.push_back(memState->getStackMin());
         DPRINTF(Stack, "Wrote env \"%s\" to address %p\n",
                 env, (void*)memState->getStackMin());
@@ -159,41 +187,41 @@ RiscvProcess::argsInit(int pageSize)
     envPointers.push_back(0);
 
     // Align stack
-    memState->setStackMin(memState->getStackMin() & -sizeof(Addr));
+    memState->setStackMin(memState->getStackMin() & -addrSize);
 
     // Calculate bottom of stack
     memState->setStackMin(memState->getStackMin() -
-            ((1 + argv.size()) * sizeof(Addr) +
-             (1 + envp.size()) * sizeof(Addr) +
-             sizeof(Addr) + 2 * sizeof(IntType) * auxv.size()));
-    memState->setStackMin(memState->getStackMin() & -2*sizeof(Addr));
+            ((1 + argv.size()) * addrSize +
+             (1 + envp.size()) * addrSize +
+             addrSize + 2 * sizeof(IntType) * auxv.size()));
+    memState->setStackMin(memState->getStackMin() & (-2 * addrSize));
     Addr sp = memState->getStackMin();
     const auto pushOntoStack =
-        [this, &sp](const uint8_t* data, const size_t size) {
-            initVirtMem.writeBlob(sp, data, size);
-            sp += size;
+        [this, &sp](IntType data) {
+            initVirtMem->write(sp, data, GuestByteOrder);
+            sp += sizeof(data);
         };
 
     // Push argc and argv pointers onto stack
-    IntType argc = htog((IntType)argv.size());
-    DPRINTF(Stack, "Wrote argc %d to address %p\n",
-            argv.size(), (void*)sp);
-    pushOntoStack((uint8_t*)&argc, sizeof(IntType));
+    IntType argc = argv.size();
+    DPRINTF(Stack, "Wrote argc %d to address %#x\n", argc, sp);
+    pushOntoStack(argc);
+
     for (const Addr& argPointer: argPointers) {
-        DPRINTF(Stack, "Wrote argv pointer %p to address %p\n",
-                (void*)argPointer, (void*)sp);
-        pushOntoStack((uint8_t*)&argPointer, sizeof(Addr));
+        DPRINTF(Stack, "Wrote argv pointer %#x to address %#x\n",
+                argPointer, sp);
+        pushOntoStack(argPointer);
     }
 
     // Push env pointers onto stack
     for (const Addr& envPointer: envPointers) {
-        DPRINTF(Stack, "Wrote envp pointer %p to address %p\n",
-                (void*)envPointer, (void*)sp);
-        pushOntoStack((uint8_t*)&envPointer, sizeof(Addr));
+        DPRINTF(Stack, "Wrote envp pointer %#x to address %#x\n",
+                envPointer, sp);
+        pushOntoStack(envPointer);
     }
 
     // Push aux vector onto stack
-    std::map<IntType, string> aux_keys = {
+    std::map<IntType, std::string> aux_keys = {
         {M5_AT_ENTRY, "M5_AT_ENTRY"},
         {M5_AT_PHNUM, "M5_AT_PHNUM"},
         {M5_AT_PHENT, "M5_AT_PHENT"},
@@ -203,48 +231,17 @@ RiscvProcess::argsInit(int pageSize)
         {M5_AT_RANDOM, "M5_AT_RANDOM"},
         {M5_AT_NULL, "M5_AT_NULL"}
     };
-    for (const AuxVector<IntType>& aux: auxv) {
-        DPRINTF(Stack, "Wrote aux key %s to address %p\n",
-                aux_keys[aux.getAuxType()], (void*)sp);
-        pushOntoStack((uint8_t*)&aux.getAuxType(), sizeof(IntType));
-        DPRINTF(Stack, "Wrote aux value %x to address %p\n",
-                aux.getAuxVal(), (void*)sp);
-        pushOntoStack((uint8_t*)&aux.getAuxVal(), sizeof(IntType));
+    for (const auto &aux: auxv) {
+        DPRINTF(Stack, "Wrote aux key %s to address %#x\n",
+                aux_keys[aux.type], sp);
+        pushOntoStack(aux.type);
+        DPRINTF(Stack, "Wrote aux value %x to address %#x\n", aux.val, sp);
+        pushOntoStack(aux.val);
     }
 
-    ThreadContext *tc = system->getThreadContext(contextIds[0]);
+    ThreadContext *tc = system->threads[contextIds[0]];
     tc->setIntReg(StackPointerReg, memState->getStackMin());
     tc->pcState(getStartPC());
 
     memState->setStackMin(roundDown(memState->getStackMin(), pageSize));
-}
-
-RiscvISA::IntReg
-RiscvProcess::getSyscallArg(ThreadContext *tc, int &i)
-{
-    // If a larger index is requested than there are syscall argument
-    // registers, return 0
-    RiscvISA::IntReg retval = 0;
-    if (i < SyscallArgumentRegs.size())
-        retval = tc->readIntReg(SyscallArgumentRegs[i]);
-    i++;
-    return retval;
-}
-
-void
-RiscvProcess::setSyscallArg(ThreadContext *tc, int i, RiscvISA::IntReg val)
-{
-    tc->setIntReg(SyscallArgumentRegs[i], val);
-}
-
-void
-RiscvProcess::setSyscallReturn(ThreadContext *tc, SyscallReturn sysret)
-{
-    if (sysret.successful()) {
-        // no error
-        tc->setIntReg(SyscallPseudoReturnReg, sysret.returnValue());
-    } else {
-        // got an error, return details
-        tc->setIntReg(SyscallPseudoReturnReg, sysret.errnoValue());
-    }
 }

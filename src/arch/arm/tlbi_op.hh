@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited
+ * Copyright (c) 2018-2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #ifndef __ARCH_ARM_TLBI_HH__
@@ -70,14 +68,10 @@ class TLBIOp
     void
     broadcast(ThreadContext *tc)
     {
-        System *sys = tc->getSystemPtr();
-        for (int x = 0; x < sys->numContexts(); x++) {
-            ThreadContext *oc = sys->getThreadContext(x);
+        for (auto *oc: tc->getSystemPtr()->threads)
             (*this)(oc);
-        }
     }
 
-  protected:
     bool secureLookup;
     ExceptionLevel targetEL;
 };
@@ -87,18 +81,27 @@ class TLBIALL : public TLBIOp
 {
   public:
     TLBIALL(ExceptionLevel _targetEL, bool _secure)
-      : TLBIOp(_targetEL, _secure)
+      : TLBIOp(_targetEL, _secure), inHost(false), el2Enabled(false)
     {}
 
     void operator()(ThreadContext* tc) override;
+
+    TLBIALL
+    makeStage2() const
+    {
+        return TLBIALL(EL1, secureLookup);
+    }
+
+    bool inHost;
+    bool el2Enabled;
 };
 
 /** Instruction TLB Invalidate All */
-class ITLBIALL : public TLBIOp
+class ITLBIALL : public TLBIALL
 {
   public:
     ITLBIALL(ExceptionLevel _targetEL, bool _secure)
-      : TLBIOp(_targetEL, _secure)
+      : TLBIALL(_targetEL, _secure)
     {}
 
     void broadcast(ThreadContext *tc) = delete;
@@ -107,16 +110,57 @@ class ITLBIALL : public TLBIOp
 };
 
 /** Data TLB Invalidate All */
-class DTLBIALL : public TLBIOp
+class DTLBIALL : public TLBIALL
 {
   public:
     DTLBIALL(ExceptionLevel _targetEL, bool _secure)
-      : TLBIOp(_targetEL, _secure)
+      : TLBIALL(_targetEL, _secure)
     {}
 
     void broadcast(ThreadContext *tc) = delete;
 
     void operator()(ThreadContext* tc) override;
+};
+
+/** Implementaton of AArch64 TLBI ALLE(1,2,3)(IS) instructions */
+class TLBIALLEL : public TLBIOp
+{
+  public:
+    TLBIALLEL(ExceptionLevel _targetEL, bool _secure)
+      : TLBIOp(_targetEL, _secure), inHost(false)
+    {}
+
+    void operator()(ThreadContext* tc) override;
+
+    TLBIALLEL
+    makeStage2() const
+    {
+        return TLBIALLEL(EL1, secureLookup);
+    }
+
+    bool inHost;
+};
+
+/** Implementaton of AArch64 TLBI VMALLE1(IS)/VMALLS112E1(IS) instructions */
+class TLBIVMALL : public TLBIOp
+{
+  public:
+    TLBIVMALL(ExceptionLevel _targetEL, bool _secure, bool _stage2)
+      : TLBIOp(_targetEL, _secure), inHost(false), el2Enabled(false),
+        stage2(_stage2)
+    {}
+
+    void operator()(ThreadContext* tc) override;
+
+    TLBIVMALL
+    makeStage2() const
+    {
+        return TLBIVMALL(EL1, secureLookup, false);
+    }
+
+    bool inHost;
+    bool el2Enabled;
+    bool stage2;
 };
 
 /** TLB Invalidate by ASID match */
@@ -124,59 +168,58 @@ class TLBIASID : public TLBIOp
 {
   public:
     TLBIASID(ExceptionLevel _targetEL, bool _secure, uint16_t _asid)
-      : TLBIOp(_targetEL, _secure), asid(_asid)
+      : TLBIOp(_targetEL, _secure), asid(_asid), inHost(false),
+        el2Enabled(false)
     {}
 
     void operator()(ThreadContext* tc) override;
 
-  protected:
     uint16_t asid;
+    bool inHost;
+    bool el2Enabled;
 };
 
 /** Instruction TLB Invalidate by ASID match */
-class ITLBIASID : public TLBIOp
+class ITLBIASID : public TLBIASID
 {
   public:
     ITLBIASID(ExceptionLevel _targetEL, bool _secure, uint16_t _asid)
-      : TLBIOp(_targetEL, _secure), asid(_asid)
+      : TLBIASID(_targetEL, _secure, _asid)
     {}
 
     void broadcast(ThreadContext *tc) = delete;
 
     void operator()(ThreadContext* tc) override;
-
-  protected:
-    uint16_t asid;
 };
 
 /** Data TLB Invalidate by ASID match */
-class DTLBIASID : public TLBIOp
+class DTLBIASID : public TLBIASID
 {
   public:
     DTLBIASID(ExceptionLevel _targetEL, bool _secure, uint16_t _asid)
-      : TLBIOp(_targetEL, _secure), asid(_asid)
+      : TLBIASID(_targetEL, _secure, _asid)
     {}
 
     void broadcast(ThreadContext *tc) = delete;
 
     void operator()(ThreadContext* tc) override;
-
-  protected:
-    uint16_t asid;
 };
 
 /** TLB Invalidate All, Non-Secure */
 class TLBIALLN : public TLBIOp
 {
   public:
-    TLBIALLN(ExceptionLevel _targetEL, bool _hyp)
-      : TLBIOp(_targetEL, false), hyp(_hyp)
+    TLBIALLN(ExceptionLevel _targetEL)
+      : TLBIOp(_targetEL, false)
     {}
 
     void operator()(ThreadContext* tc) override;
 
-  protected:
-    bool hyp;
+    TLBIALLN
+    makeStage2() const
+    {
+        return TLBIALLN(EL1);
+    }
 };
 
 /** TLB Invalidate by VA, All ASID */
@@ -184,15 +227,14 @@ class TLBIMVAA : public TLBIOp
 {
   public:
     TLBIMVAA(ExceptionLevel _targetEL, bool _secure,
-             Addr _addr, bool _hyp)
-      : TLBIOp(_targetEL, _secure), addr(_addr), hyp(_hyp)
+             Addr _addr)
+      : TLBIOp(_targetEL, _secure), addr(_addr), inHost(false)
     {}
 
     void operator()(ThreadContext* tc) override;
 
-  protected:
     Addr addr;
-    bool hyp;
+    bool inHost;
 };
 
 /** TLB Invalidate by VA */
@@ -201,50 +243,43 @@ class TLBIMVA : public TLBIOp
   public:
     TLBIMVA(ExceptionLevel _targetEL, bool _secure,
             Addr _addr, uint16_t _asid)
-      : TLBIOp(_targetEL, _secure), addr(_addr), asid(_asid)
+      : TLBIOp(_targetEL, _secure), addr(_addr), asid(_asid),
+        inHost(false)
     {}
 
     void operator()(ThreadContext* tc) override;
 
-  protected:
     Addr addr;
     uint16_t asid;
+    bool inHost;
 };
 
 /** Instruction TLB Invalidate by VA */
-class ITLBIMVA : public TLBIOp
+class ITLBIMVA : public TLBIMVA
 {
   public:
     ITLBIMVA(ExceptionLevel _targetEL, bool _secure,
              Addr _addr, uint16_t _asid)
-      : TLBIOp(_targetEL, _secure), addr(_addr), asid(_asid)
+      : TLBIMVA(_targetEL, _secure, _addr, _asid)
     {}
 
     void broadcast(ThreadContext *tc) = delete;
 
     void operator()(ThreadContext* tc) override;
-
-  protected:
-    Addr addr;
-    uint16_t asid;
 };
 
 /** Data TLB Invalidate by VA */
-class DTLBIMVA : public TLBIOp
+class DTLBIMVA : public TLBIMVA
 {
   public:
     DTLBIMVA(ExceptionLevel _targetEL, bool _secure,
              Addr _addr, uint16_t _asid)
-      : TLBIOp(_targetEL, _secure), addr(_addr), asid(_asid)
+      : TLBIMVA(_targetEL, _secure, _addr, _asid)
     {}
 
     void broadcast(ThreadContext *tc) = delete;
 
     void operator()(ThreadContext* tc) override;
-
-  protected:
-    Addr addr;
-    uint16_t asid;
 };
 
 /** TLB Invalidate by Intermediate Physical Address */
@@ -257,7 +292,13 @@ class TLBIIPA : public TLBIOp
 
     void operator()(ThreadContext* tc) override;
 
-  protected:
+    /** TLBIIPA is basically a TLBIMVAA for stage2 TLBs */
+    TLBIMVAA
+    makeStage2() const
+    {
+        return TLBIMVAA(EL1, secureLookup, addr);
+    }
+
     Addr addr;
 };
 

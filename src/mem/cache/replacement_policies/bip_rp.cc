@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018 Inria
+ * Copyright (c) 2018-2020 Inria
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 #include "mem/cache/replacement_policies/bip_rp.hh"
@@ -34,14 +32,17 @@
 
 #include "base/random.hh"
 #include "params/BIPRP.hh"
+#include "sim/core.hh"
 
-BIPRP::BIPRP(const Params *p)
-    : LRURP(p), btp(p->btp)
+namespace ReplacementPolicy {
+
+BIP::BIP(const Params &p)
+  : LRU(p), btp(p.btp)
 {
 }
 
 void
-BIPRP::reset(const std::shared_ptr<ReplacementData>& replacement_data) const
+BIP::reset(const std::shared_ptr<ReplacementData>& replacement_data) const
 {
     std::shared_ptr<LRUReplData> casted_replacement_data =
         std::static_pointer_cast<LRUReplData>(replacement_data);
@@ -55,8 +56,4 @@ BIPRP::reset(const std::shared_ptr<ReplacementData>& replacement_data) const
     }
 }
 
-BIPRP*
-BIPRPParams::create()
-{
-    return new BIPRP(this);
-}
+} // namespace ReplacementPolicy

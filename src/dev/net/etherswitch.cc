@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Anthony Gutierrez
- *          Mohammad Alian
  */
 
 /* @file
@@ -40,16 +37,14 @@
 #include "debug/EthernetAll.hh"
 #include "sim/core.hh"
 
-using namespace std;
-
-EtherSwitch::EtherSwitch(const Params *p)
-    : EtherObject(p), ttl(p->time_to_live)
+EtherSwitch::EtherSwitch(const Params &p)
+    : SimObject(p), ttl(p.time_to_live)
 {
-    for (int i = 0; i < p->port_interface_connection_count; ++i) {
+    for (int i = 0; i < p.port_interface_connection_count; ++i) {
         std::string interfaceName = csprintf("%s.interface%d", name(), i);
         Interface *interface = new Interface(interfaceName, this,
-                                        p->output_buffer_size, p->delay,
-                                        p->delay_var, p->fabric_speed, i);
+                                        p.output_buffer_size, p.delay,
+                                        p.delay_var, p.fabric_speed, i);
         interfaces.push_back(interface);
     }
 }
@@ -62,16 +57,15 @@ EtherSwitch::~EtherSwitch()
     interfaces.clear();
 }
 
-EtherInt*
-EtherSwitch::getEthPort(const std::string &if_name, int idx)
+Port &
+EtherSwitch::getPort(const std::string &if_name, PortID idx)
 {
-    if (idx < 0 || idx >= interfaces.size())
-        return nullptr;
+    if (if_name == "interface") {
+        panic_if(idx < 0 || idx >= interfaces.size(), "index out of bounds");
+        return *interfaces.at(idx);
+    }
 
-    Interface *interface = interfaces.at(idx);
-    panic_if(interface->getPeer(), "interface already connected\n");
-
-    return interface;
+    return SimObject::getPort(if_name, idx);
 }
 
 bool
@@ -188,7 +182,7 @@ EtherSwitch::Interface::transmit()
     if (!sendPacket(outputFifo.front())) {
         DPRINTF(Ethernet, "output port busy...retry later\n");
         if (!txEvent.scheduled())
-            parent->schedule(txEvent, curTick() + retryTime);
+            parent->schedule(txEvent, curTick() + SimClock::Int::ns);
     } else {
         DPRINTF(Ethernet, "packet sent: len=%d\n", outputFifo.front()->length);
         outputFifo.pop();
@@ -312,7 +306,7 @@ EtherSwitch::Interface::PortFifoEntry::serialize(CheckpointOut &cp) const
 void
 EtherSwitch::Interface::PortFifoEntry::unserialize(CheckpointIn &cp)
 {
-    packet = make_shared<EthPacketData>(16384);
+    packet = std::make_shared<EthPacketData>(16384);
     packet->unserialize("packet", cp);
     UNSERIALIZE_SCALAR(recvTick);
     UNSERIALIZE_SCALAR(srcId);
@@ -348,10 +342,4 @@ EtherSwitch::Interface::PortFifo::unserialize(CheckpointIn &cp)
         fifo.insert(entry);
 
     }
-}
-
-EtherSwitch *
-EtherSwitchParams::create()
-{
-    return new EtherSwitch(this);
 }

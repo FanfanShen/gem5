@@ -33,9 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Dam Sunwoo
- *          Curtis Dunham
  */
 
 #ifndef __CPU_SIMPLE_PROBES_SIMPOINT_HH__
@@ -75,7 +72,7 @@ struct hash<BasicBlockRange>
 class SimPoint : public ProbeListenerObject
 {
   public:
-    SimPoint(const SimPointParams *params);
+    SimPoint(const SimPointParams &params);
     virtual ~SimPoint();
 
     virtual void init();

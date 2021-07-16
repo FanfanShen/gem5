@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Nikos Nikoleris
  */
 
 /**
@@ -62,6 +59,7 @@
 #include "base/types.hh"
 #include "mem/cache/cache_blk.hh"
 #include "mem/cache/tags/base.hh"
+#include "mem/packet.hh"
 #include "params/FALRU.hh"
 
 // Uncomment to enable sanity checks for the FALRU cache and the
@@ -155,18 +153,13 @@ class FALRU : public BaseTags
     /**
      * Construct and initialize this cache tagstore.
      */
-    FALRU(const Params *p);
+    FALRU(const Params &p);
     ~FALRU();
 
     /**
      * Initialize blocks as FALRUBlk instances.
      */
     void tagsInit() override;
-
-    /**
-     * Register the stats for this object.
-     */
-    void regStats() override;
 
     /**
      * Invalidate a cache block.
@@ -218,24 +211,23 @@ class FALRU : public BaseTags
      *
      * @param addr Address to find a victim for.
      * @param is_secure True if the target memory space is secure.
+     * @param size Size, in bits, of new block to allocate.
      * @param evict_blks Cache blocks to be evicted.
      * @return Cache block to be replaced.
      */
     CacheBlk* findVictim(Addr addr, const bool is_secure,
-                         std::vector<CacheBlk*>& evict_blks) const override;
+                         const std::size_t size,
+                         std::vector<CacheBlk*>& evict_blks) override;
 
     /**
      * Insert the new block into the cache and update replacement data.
      *
-     * @param addr Address of the block.
-     * @param is_secure Whether the block is in secure space or not.
-     * @param src_master_ID The source requestor ID.
-     * @param task_ID The new task ID.
+     * @param pkt Packet holding the address to update
      * @param blk The block to update.
      */
-    void insertBlock(const Addr addr, const bool is_secure,
-                     const int src_master_ID, const uint32_t task_ID,
-                     CacheBlk *blk) override;
+    void insertBlock(const PacketPtr pkt, CacheBlk *blk) override;
+
+    void moveBlock(CacheBlk *src_blk, CacheBlk *dest_blk) override;
 
     /**
      * Generate the tag from the addres. For fully associative this is just the
@@ -256,7 +248,7 @@ class FALRU : public BaseTags
      */
     Addr regenerateBlkAddr(const CacheBlk* blk) const override
     {
-        return blk->tag;
+        return blk->getTag();
     }
 
     void forEachBlk(std::function<void(CacheBlk &)> visitor) override {
@@ -281,23 +273,11 @@ class FALRU : public BaseTags
      * caches from a set minimum size of interest up to the actual
      * cache size.
      */
-    class CacheTracking
+    class CacheTracking : public Stats::Group
     {
       public:
         CacheTracking(unsigned min_size, unsigned max_size,
-                      unsigned block_size)
-            : blkSize(block_size),
-              minTrackedSize(min_size),
-              numTrackedCaches(max_size > min_size ?
-                               floorLog2(max_size) - floorLog2(min_size) : 0),
-              inAllCachesMask(mask(numTrackedCaches)),
-              boundaries(numTrackedCaches)
-        {
-            fatal_if(numTrackedCaches > sizeof(CachesMask) * 8,
-                     "Not enough bits (%s) in type CachesMask type to keep "
-                     "track of %d caches\n", sizeof(CachesMask),
-                     numTrackedCaches);
-        }
+                      unsigned block_size, Stats::Group *parent);
 
         /**
          * Initialiaze cache blocks and the tracking mechanism
@@ -354,11 +334,6 @@ class FALRU : public BaseTags
          * @param head the LRU block of the actual cache
          */
         void check(const FALRUBlk *head, const FALRUBlk *tail) const;
-
-        /**
-         * Register the stats for this object.
-         */
-        void regStats(std::string name);
 
       private:
         /** The size of the cache block */

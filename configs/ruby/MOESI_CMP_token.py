@@ -24,15 +24,13 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Brad Beckmann
 
 import math
 import m5
 from m5.objects import *
 from m5.defines import buildEnv
-from Ruby import create_topology, create_directories
-from Ruby import send_evicts
+from .Ruby import create_topology, create_directories
+from .Ruby import send_evicts
 
 #
 # Declare caches used by the protocol
@@ -80,7 +78,7 @@ def create_system(options, full_system, system, dma_ports, bootmem,
     l2_bits = int(math.log(options.num_l2caches, 2))
     block_size_bits = int(math.log(options.cacheline_size, 2))
 
-    for i in xrange(options.num_cpus):
+    for i in range(options.num_cpus):
         #
         # First create the Ruby objects associated with this cpu
         #
@@ -119,7 +117,7 @@ def create_system(options, full_system, system, dma_ports, bootmem,
                                       clk_domain=clk_domain,
                                       ruby_system=ruby_system)
 
-        cpu_seq = RubySequencer(version=i, icache=l1i_cache,
+        cpu_seq = RubySequencer(version=i,
                                 dcache=l1d_cache, clk_domain=clk_domain,
                                 ruby_system=ruby_system)
 
@@ -149,7 +147,7 @@ def create_system(options, full_system, system, dma_ports, bootmem,
 
     l2_index_start = block_size_bits + l2_bits
 
-    for i in xrange(options.num_l2caches):
+    for i in range(options.num_l2caches):
         #
         # First create the Ruby objects associated with this cpu
         #
@@ -216,6 +214,7 @@ def create_system(options, full_system, system, dma_ports, bootmem,
         dir_cntrl.persistentFromDir.master = ruby_system.network.slave
         dir_cntrl.dmaResponseFromDir = MessageBuffer(ordered = True)
         dir_cntrl.dmaResponseFromDir.master = ruby_system.network.slave
+        dir_cntrl.requestToMemory = MessageBuffer()
         dir_cntrl.responseFromMemory = MessageBuffer()
 
 
@@ -264,7 +263,6 @@ def create_system(options, full_system, system, dma_ports, bootmem,
         io_controller.reqToDirectory.master = ruby_system.network.slave
 
         all_cntrls = all_cntrls + [io_controller]
-
 
     ruby_system.network.number_of_virtual_networks = 6
     topology = create_topology(all_cntrls, options)

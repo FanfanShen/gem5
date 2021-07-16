@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018 Inria
+ * Copyright (c) 2018-2020 Inria
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 /**
@@ -41,10 +39,12 @@
 
 struct RandomRPParams;
 
-class RandomRP : public BaseReplacementPolicy
+namespace ReplacementPolicy {
+
+class Random : public Base
 {
   protected:
-    /** MRU-specific implementation of replacement data. */
+    /** Random-specific implementation of replacement data. */
     struct RandomReplData : ReplacementData
     {
         /**
@@ -60,18 +60,9 @@ class RandomRP : public BaseReplacementPolicy
     };
 
   public:
-    /** Convenience typedef. */
     typedef RandomRPParams Params;
-
-    /**
-     * Construct and initiliaze this replacement policy.
-     */
-    RandomRP(const Params *p);
-
-    /**
-     * Destructor.
-     */
-    ~RandomRP() {}
+    Random(const Params &p);
+    ~Random() = default;
 
     /**
      * Invalidate replacement data to set it as the next probable victim.
@@ -116,5 +107,7 @@ class RandomRP : public BaseReplacementPolicy
      */
     std::shared_ptr<ReplacementData> instantiateEntry() override;
 };
+
+} // namespace ReplacementPolicy
 
 #endif // __MEM_CACHE_REPLACEMENT_POLICIES_RANDOM_RP_HH__

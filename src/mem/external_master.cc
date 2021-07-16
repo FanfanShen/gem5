@@ -33,10 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
- *          Curtis Dunham
- *          Christian Menard
  */
 
 #include "mem/external_master.hh"
@@ -51,18 +47,17 @@
 std::map<std::string, ExternalMaster::Handler *>
     ExternalMaster::portHandlers;
 
-ExternalMaster::ExternalMaster(ExternalMasterParams *params) :
-    MemObject(params),
+ExternalMaster::ExternalMaster(const ExternalMasterParams &params) :
+    SimObject(params),
     externalPort(NULL),
-    portName(params->name + ".port"),
-    portType(params->port_type),
-    portData(params->port_data),
-    masterId(params->system->getMasterId(this))
+    portName(params.name + ".port"),
+    portType(params.port_type),
+    portData(params.port_data),
+    id(params.system->getRequestorId(this))
 {}
 
-BaseMasterPort &
-ExternalMaster::getMasterPort(const std::string &if_name,
-    PortID idx)
+Port &
+ExternalMaster::getPort(const std::string &if_name, PortID idx)
 {
     if (if_name == "port") {
         DPRINTF(ExternalPort, "Trying to bind external port: %s %s\n",
@@ -84,7 +79,7 @@ ExternalMaster::getMasterPort(const std::string &if_name,
         }
         return *externalPort;
     } else {
-        return MemObject::getMasterPort(if_name, idx);
+        return SimObject::getPort(if_name, idx);
     }
 }
 
@@ -96,12 +91,6 @@ ExternalMaster::init()
     } else if (!externalPort->isConnected()) {
         fatal("ExternalMaster %s is unconnected!\n", name());
     }
-}
-
-ExternalMaster *
-ExternalMasterParams::create()
-{
-    return new ExternalMaster(this);
 }
 
 void

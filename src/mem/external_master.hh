@@ -33,17 +33,13 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
- *          Curtis Dunham
- *          Christian Menard
  */
 
 /**
  * @file
  *
  * ExternalMaster is a memory object representing a binding from
- * a gem5 slave to a master port in a system external to gem5.
+ * a gem5 responder to a request port in a system external to gem5.
  *
  * During initialisation, a `handler' for the port type specified in the
  * port's port_type parameter is found from the registered port handlers
@@ -52,33 +48,34 @@
  * port which is to be bound to.  A port handler will usually construct a
  * bridge object in the external system to accomodate the port-to-port
  * mapping but this bridge is not exposed to gem5 other than be the
- * presentation of the MasterPort which can be bound.
+ * presentation of the RequestPort which can be bound.
  *
- * The external port must provide a gem5 MasterPort interface.
+ * The external port must provide a gem5 RequestPort interface.
  */
 
 #ifndef __MEM_EXTERNAL_MASTER_HH__
 #define __MEM_EXTERNAL_MASTER_HH__
 
-#include "mem/mem_object.hh"
+#include "mem/port.hh"
 #include "params/ExternalMaster.hh"
+#include "sim/sim_object.hh"
 
-class ExternalMaster : public MemObject
+class ExternalMaster : public SimObject
 {
   public:
     /** Derive from this class to create an external port interface */
-    class Port : public MasterPort
+    class ExternalPort : public RequestPort
     {
       protected:
         ExternalMaster &owner;
 
       public:
-        Port(const std::string &name_,
+        ExternalPort(const std::string &name_,
             ExternalMaster &owner_) :
-            MasterPort(name_, &owner_), owner(owner_)
+            RequestPort(name_, &owner_), owner(owner_)
         { }
 
-        ~Port() { }
+        ~ExternalPort() { }
 
         /** Any or all of recv... can be overloaded to provide the port's
          *  functionality */
@@ -86,21 +83,21 @@ class ExternalMaster : public MemObject
 
     /* Handlers are specific to *types* of port not specific port
      * instantiations.  A handler will typically build a bridge to the
-     * external port from gem5 and provide gem5 with a MasterPort that can be
+     * external port from gem5 and provide gem5 with a RequestPort that can be
      * bound to for each call to Handler::getExternalPort.*/
     class Handler
     {
       public:
         /** Create or find an external port which can be bound.  Returns
          *  NULL on failure */
-        virtual Port *getExternalPort(
+        virtual ExternalPort *getExternalPort(
             const std::string &name, ExternalMaster &owner,
             const std::string &port_data) = 0;
     };
 
   protected:
     /** The peer port for the gem5 port "port" */
-    Port *externalPort;
+    ExternalPort *externalPort;
 
     /** Name of the bound port.  This will be name() + ".port" */
     std::string portName;
@@ -118,20 +115,20 @@ class ExternalMaster : public MemObject
     static std::map<std::string, Handler *> portHandlers;
 
   public:
-    ExternalMaster(ExternalMasterParams *params);
+    ExternalMaster(const ExternalMasterParams &params);
 
-    /** MasterPort interface.  Responds only to port "port" */
-    BaseMasterPort &getMasterPort(const std::string &if_name,
-        PortID idx = InvalidPortID);
+    /** Port interface.  Responds only to port "port" */
+    Port &getPort(const std::string &if_name,
+                  PortID idx=InvalidPortID) override;
 
     /** Register a handler which can provide ports with port_type ==
      *  handler_name */
     static void registerHandler(const std::string &handler_name,
         Handler *handler);
 
-    void init();
+    void init() override;
 
-    const MasterID masterId;
+    const RequestorID id;
 };
 
 

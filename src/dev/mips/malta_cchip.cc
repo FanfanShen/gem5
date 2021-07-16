@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Rick Strong
  */
 
 /** @file
@@ -51,10 +48,8 @@
 #include "params/MaltaCChip.hh"
 #include "sim/system.hh"
 
-using namespace std;
-
-MaltaCChip::MaltaCChip(Params *p)
-    : BasicPioDevice(p, 0xfffffff), malta(p->malta)
+MaltaCChip::MaltaCChip(const Params &p)
+    : BasicPioDevice(p, 0xfffffff), malta(p.malta)
 {
     warn("MaltaCCHIP::MaltaCChip() not implemented.");
 
@@ -105,7 +100,7 @@ MaltaCChip::postRTC()
 void
 MaltaCChip::postIntr(uint32_t interrupt)
 {
-    uint64_t size = sys->threadContexts.size();
+    uint64_t size = sys->threads.size();
     assert(size <= Malta::Max_CPUs);
 
     for (int i=0; i < size; i++) {
@@ -120,7 +115,7 @@ MaltaCChip::postIntr(uint32_t interrupt)
 void
 MaltaCChip::clearIntr(uint32_t interrupt)
 {
-    uint64_t size = sys->threadContexts.size();
+    uint64_t size = sys->threads.size();
     assert(size <= Malta::Max_CPUs);
 
     for (int i=0; i < size; i++) {
@@ -142,10 +137,3 @@ void
 MaltaCChip::unserialize(CheckpointIn &cp)
 {
 }
-
-MaltaCChip *
-MaltaCChipParams::create()
-{
-    return new MaltaCChip(this);
-}
-

@@ -26,8 +26,6 @@
 #
 # Author: Tushar Krishna
 
-from __future__ import print_function
-
 import m5
 from m5.objects import *
 from m5.defines import buildEnv
@@ -87,8 +85,6 @@ parser.add_option("--inj-vnet", type="int", default=-1,
 #
 Ruby.define_options(parser)
 
-execfile(os.path.join(config_root, "common", "Options.py"))
-
 (options, args) = parser.parse_args()
 
 if args:
@@ -112,7 +108,7 @@ cpus = [ GarnetSyntheticTraffic(
                      inj_vnet=options.inj_vnet,
                      precision=options.precision,
                      num_dest=options.num_dirs) \
-         for i in xrange(options.num_cpus) ]
+         for i in range(options.num_cpus) ]
 
 # create the desired simulated system
 system = System(cpu = cpus, mem_ranges = [AddrRange(options.mem_size)])
@@ -146,7 +142,7 @@ root = Root(full_system = False, system = system)
 root.system.mem_mode = 'timing'
 
 # Not much point in this being higher than the L1 latency
-m5.ticks.setGlobalFrequency('1ns')
+m5.ticks.setGlobalFrequency('1ps')
 
 # instantiate configuration
 m5.instantiate()

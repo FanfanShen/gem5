@@ -24,14 +24,11 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #ifndef __CPU_O3_IMPL_HH__
 #define __CPU_O3_IMPL_HH__
 
-#include "arch/isa_traits.hh"
 #include "config/the_isa.hh"
 #include "cpu/o3/cpu_policy.hh"
 
@@ -52,9 +49,6 @@ class FullO3CPU;
  */
 struct O3CPUImpl
 {
-    /** The type of MachInst. */
-    typedef TheISA::MachInst MachInst;
-
     /** The CPU policy to be used, which defines all of the CPU stages. */
     typedef SimpleCPUPolicy<O3CPUImpl> CPUPol;
 

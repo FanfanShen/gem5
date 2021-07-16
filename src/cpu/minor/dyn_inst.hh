@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014 ARM Limited
+ * Copyright (c) 2013-2014,2018 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 /**
@@ -51,11 +49,13 @@
 #include <iostream>
 
 #include "base/refcnt.hh"
-#include "cpu/minor/buffers.hh"
+#include "base/types.hh"
 #include "cpu/inst_seq.hh"
+#include "cpu/minor/buffers.hh"
 #include "cpu/static_inst.hh"
 #include "cpu/timing_expr.hh"
 #include "sim/faults.hh"
+#include "sim/insttracer.hh"
 
 namespace Minor
 {
@@ -162,7 +162,7 @@ class MinorDynInst : public RefCounted
     static MinorDynInstPtr bubbleInst;
 
   public:
-    StaticInstPtr staticInst;
+    const StaticInstPtr staticInst;
 
     InstId id;
 
@@ -194,6 +194,9 @@ class MinorDynInst : public RefCounted
     /** This instruction is in the LSQ, not a functional unit */
     bool inLSQ;
 
+    /** Translation fault in case of a mem ref */
+    Fault translationFault;
+
     /** The instruction has been sent to the store buffer */
     bool inStoreBuffer;
 
@@ -201,6 +204,13 @@ class MinorDynInst : public RefCounted
      *  this only happens with mem refs that need to be issued early
      *  to allow other instructions to fill the fetch delay */
     bool canEarlyIssue;
+
+    /** Flag controlling conditional execution of the instruction */
+    bool predicate;
+
+    /** Flag controlling conditional execution of the memory access associated
+     *  with the instruction (only meaningful for loads/stores) */
+    bool memAccPredicate;
 
     /** execSeqNum of the latest inst on which this inst depends.
      *  This can be used as a sanity check for dependency ordering
@@ -219,17 +229,18 @@ class MinorDynInst : public RefCounted
     /** Flat register indices so that, when clearing the scoreboard, we
      *  have the same register indices as when the instruction was marked
      *  up */
-    RegId flatDestRegIdx[TheISA::MaxInstDestRegs];
+    std::vector<RegId> flatDestRegIdx;
 
   public:
-    MinorDynInst(InstId id_ = InstId(), Fault fault_ = NoFault) :
-        staticInst(NULL), id(id_), traceData(NULL),
+    MinorDynInst(StaticInstPtr si, InstId id_=InstId(), Fault fault_=NoFault) :
+        staticInst(si), id(id_), traceData(NULL),
         pc(TheISA::PCState(0)), fault(fault_),
         triedToPredict(false), predictedTaken(false),
-        fuIndex(0), inLSQ(false), inStoreBuffer(false),
-        canEarlyIssue(false),
-        instToWaitFor(0), extraCommitDelay(Cycles(0)),
-        extraCommitDelayExpr(NULL), minimumCommitCycle(Cycles(0))
+        fuIndex(0), inLSQ(false), translationFault(NoFault),
+        inStoreBuffer(false), canEarlyIssue(false), predicate(true),
+        memAccPredicate(true), instToWaitFor(0), extraCommitDelay(Cycles(0)),
+        extraCommitDelayExpr(NULL), minimumCommitCycle(Cycles(0)),
+        flatDestRegIdx(si ? si->numDestRegs() : 0)
     { }
 
   public:
@@ -265,6 +276,14 @@ class MinorDynInst : public RefCounted
 
     /** ReportIF interface */
     void reportData(std::ostream &os) const;
+
+    bool readPredicate() const { return predicate; }
+
+    void setPredicate(bool val) { predicate = val; }
+
+    bool readMemAccPredicate() const { return memAccPredicate; }
+
+    void setMemAccPredicate(bool val) { memAccPredicate = val; }
 
     ~MinorDynInst();
 };

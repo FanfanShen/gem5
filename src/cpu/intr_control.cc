@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Ron Dreslinski
  */
 
 #include "cpu/intr_control.hh"
@@ -40,32 +37,38 @@
 #include "debug/IntrControl.hh"
 #include "sim/sim_object.hh"
 
-using namespace std;
-
-IntrControl::IntrControl(const Params *p)
-    : SimObject(p), sys(p->sys)
+IntrControl::IntrControl(const Params &p)
+    : SimObject(p), sys(p.sys)
 {}
 
 void
 IntrControl::post(int cpu_id, int int_num, int index)
 {
     DPRINTF(IntrControl, "post  %d:%d (cpu %d)\n", int_num, index, cpu_id);
-    std::vector<ThreadContext *> &tcvec = sys->threadContexts;
-    BaseCPU *cpu = tcvec[cpu_id]->getCpuPtr();
-    cpu->postInterrupt(tcvec[cpu_id]->threadId(), int_num, index);
+    auto *tc = sys->threads[cpu_id];
+    tc->getCpuPtr()->postInterrupt(tc->threadId(), int_num, index);
 }
 
 void
 IntrControl::clear(int cpu_id, int int_num, int index)
 {
     DPRINTF(IntrControl, "clear %d:%d (cpu %d)\n", int_num, index, cpu_id);
-    std::vector<ThreadContext *> &tcvec = sys->threadContexts;
-    BaseCPU *cpu = tcvec[cpu_id]->getCpuPtr();
-    cpu->clearInterrupt(tcvec[cpu_id]->threadId(), int_num, index);
+    auto *tc = sys->threads[cpu_id];
+    tc->getCpuPtr()->clearInterrupt(tc->threadId(), int_num, index);
 }
 
-IntrControl *
-IntrControlParams::create()
+void
+IntrControl::clearAll(int cpu_id)
 {
-    return new IntrControl(this);
+    DPRINTF(IntrControl, "Clear all pending interrupts for CPU %d\n", cpu_id);
+    auto *tc = sys->threads[cpu_id];
+    tc->getCpuPtr()->clearInterrupts(tc->threadId());
+}
+
+bool
+IntrControl::havePosted(int cpu_id) const
+{
+    DPRINTF(IntrControl, "Check pending interrupts for CPU %d\n", cpu_id);
+    auto *tc = sys->threads[cpu_id];
+    return tc->getCpuPtr()->checkInterrupts(tc->threadId());
 }

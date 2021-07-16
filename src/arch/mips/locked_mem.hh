@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
  */
 
 #ifndef __ARCH_MIPS_LOCKED_MEM_HH__
@@ -49,9 +47,10 @@
  * ISA-specific helper functions for locked memory accesses.
  */
 
-#include "arch/registers.hh"
+#include "arch/mips/registers.hh"
 #include "base/logging.hh"
 #include "base/trace.hh"
+#include "cpu/base.hh"
 #include "debug/LLSC.hh"
 #include "mem/packet.hh"
 #include "mem/request.hh"

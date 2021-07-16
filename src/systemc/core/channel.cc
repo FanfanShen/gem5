@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "systemc/core/channel.hh"
@@ -54,8 +52,7 @@ Channel::requestUpdate()
 void
 Channel::asyncRequestUpdate()
 {
-    //TODO This should probably not request an update directly.
-    scheduler.requestUpdate(this);
+    scheduler.asyncRequestUpdate(this);
 }
 
 std::set<Channel *> allChannels;

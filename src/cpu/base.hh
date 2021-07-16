@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2013, 2017 ARM Limited
+ * Copyright (c) 2011-2013, 2017, 2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -37,10 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Nathan Binkert
- *          Rick Strong
  */
 
 #ifndef __CPU_BASE_HH__
@@ -52,13 +48,12 @@
 // and if so stop here
 #include "config/the_isa.hh"
 #if THE_ISA == NULL_ISA
-#include "arch/null/cpu_dummy.hh"
+#error Including BaseCPU in a system without CPU support
 #else
-#include "arch/interrupts.hh"
-#include "arch/isa_traits.hh"
-#include "arch/microcode_rom.hh"
+#include "arch/generic/interrupts.hh"
 #include "base/statistics.hh"
-#include "mem/mem_object.hh"
+#include "mem/port_proxy.hh"
+#include "sim/clocked_object.hh"
 #include "sim/eventq.hh"
 #include "sim/full_system.hh"
 #include "sim/insttracer.hh"
@@ -106,7 +101,7 @@ class CPUProgressEvent : public Event
     virtual const char *description() const;
 };
 
-class BaseCPU : public MemObject
+class BaseCPU : public ClockedObject
 {
   protected:
 
@@ -128,10 +123,10 @@ class BaseCPU : public MemObject
     const uint32_t _socketId;
 
     /** instruction side request id that must be placed in all requests */
-    MasterID _instMasterId;
+    RequestorID _instRequestorId;
 
     /** data side request id that must be placed in all requests */
-    MasterID _dataMasterId;
+    RequestorID _dataRequestorId;
 
     /** An intrenal representation of a task identifier within gem5. This is
      * used so the CPU can add which taskId (which is an internal representation
@@ -150,6 +145,23 @@ class BaseCPU : public MemObject
     /** Cache the cache line size that we get from the system */
     const unsigned int _cacheLineSize;
 
+    /** Global CPU statistics that are merged into the Root object. */
+    struct GlobalStats : public Stats::Group {
+        GlobalStats(::Stats::Group *parent);
+
+        ::Stats::Value simInsts;
+        ::Stats::Value simOps;
+
+        ::Stats::Formula hostInstRate;
+        ::Stats::Formula hostOpRate;
+    };
+
+    /**
+     * Pointer to the global stat structure. This needs to be
+     * constructed from regStats since we merge it into the root
+     * group. */
+    static std::unique_ptr<GlobalStats> globalStats;
+
   public:
 
     /**
@@ -158,7 +170,18 @@ class BaseCPU : public MemObject
      *
      * @return a reference to the data port
      */
-    virtual MasterPort &getDataPort() = 0;
+    virtual Port &getDataPort() = 0;
+
+    /**
+     * Returns a sendFunctional delegate for use with port proxies.
+     */
+    virtual PortProxy::SendFunctionalFunc
+    getSendFunctional()
+    {
+        auto port = dynamic_cast<RequestPort *>(&getDataPort());
+        assert(port);
+        return [port](PacketPtr pkt)->void { port->sendFunctional(pkt); };
+    }
 
     /**
      * Purely virtual method that returns a reference to the instruction
@@ -166,7 +189,7 @@ class BaseCPU : public MemObject
      *
      * @return a reference to the instruction port
      */
-    virtual MasterPort &getInstPort() = 0;
+    virtual Port &getInstPort() = 0;
 
     /** Reads this CPU's ID. */
     int cpuId() const { return _cpuId; }
@@ -175,12 +198,12 @@ class BaseCPU : public MemObject
     uint32_t socketId() const { return _socketId; }
 
     /** Reads this CPU's unique data requestor ID */
-    MasterID dataMasterId() { return _dataMasterId; }
+    RequestorID dataRequestorId() const { return _dataRequestorId; }
     /** Reads this CPU's unique instruction requestor ID */
-    MasterID instMasterId() { return _instMasterId; }
+    RequestorID instRequestorId() const { return _instRequestorId; }
 
     /**
-     * Get a master port on this CPU. All CPUs have a data and
+     * Get a port on this CPU. All CPUs have a data and
      * instruction port, and this method uses getDataPort and
      * getInstPort of the subclasses to resolve the two ports.
      *
@@ -189,8 +212,8 @@ class BaseCPU : public MemObject
      *
      * @return a reference to the port with the given name
      */
-    BaseMasterPort &getMasterPort(const std::string &if_name,
-                                  PortID idx = InvalidPortID) override;
+    Port &getPort(const std::string &if_name,
+                  PortID idx=InvalidPortID) override;
 
     /** Get cpu task id */
     uint32_t taskId() const { return _taskId; }
@@ -200,18 +223,16 @@ class BaseCPU : public MemObject
     uint32_t getPid() const { return _pid; }
     void setPid(uint32_t pid) { _pid = pid; }
 
-    inline void workItemBegin() { numWorkItemsStarted++; }
-    inline void workItemEnd() { numWorkItemsCompleted++; }
+    inline void workItemBegin() { baseStats.numWorkItemsStarted++; }
+    inline void workItemEnd() { baseStats.numWorkItemsCompleted++; }
     // @todo remove me after debugging with legion done
     Tick instCount() { return instCnt; }
 
-    TheISA::MicrocodeRom microcodeRom;
-
   protected:
-    std::vector<TheISA::Interrupts*> interrupts;
+    std::vector<BaseInterrupts*> interrupts;
 
   public:
-    TheISA::Interrupts *
+    BaseInterrupts *
     getInterruptController(ThreadID tid)
     {
         if (interrupts.empty())
@@ -224,12 +245,7 @@ class BaseCPU : public MemObject
     virtual void wakeup(ThreadID tid) = 0;
 
     void
-    postInterrupt(ThreadID tid, int int_num, int index)
-    {
-        interrupts[tid]->post(int_num, index);
-        if (FullSystem)
-            wakeup(tid);
-    }
+    postInterrupt(ThreadID tid, int int_num, int index);
 
     void
     clearInterrupt(ThreadID tid, int int_num, int index)
@@ -244,13 +260,10 @@ class BaseCPU : public MemObject
     }
 
     bool
-    checkInterrupts(ThreadContext *tc) const
+    checkInterrupts(ThreadID tid) const
     {
-        return FullSystem && interrupts[tc->threadId()]->checkInterrupts(tc);
+        return FullSystem && interrupts[tid]->checkInterrupts();
     }
-
-    void processProfileEvent();
-    EventFunctionWrapper * profileEvent;
 
   protected:
     std::vector<ThreadContext *> threadContexts;
@@ -287,17 +300,17 @@ class BaseCPU : public MemObject
    virtual ThreadContext *getContext(int tn) { return threadContexts[tn]; }
 
    /// Get the number of thread contexts available
-   unsigned numContexts() { return threadContexts.size(); }
+   unsigned numContexts() {
+       return static_cast<unsigned>(threadContexts.size());
+   }
 
     /// Convert ContextID to threadID
     ThreadID contextToThread(ContextID cid)
     { return static_cast<ThreadID>(cid - threadContexts[0]->contextId()); }
 
   public:
-    typedef BaseCPUParams Params;
-    const Params *params() const
-    { return reinterpret_cast<const Params *>(_params); }
-    BaseCPU(Params *params, bool is_checker = false);
+    PARAMS(BaseCPU);
+    BaseCPU(const Params &params, bool is_checker = false);
     virtual ~BaseCPU();
 
     void init() override;
@@ -370,20 +383,6 @@ class BaseCPU : public MemObject
      */
     ThreadID numThreads;
 
-    /**
-     * Vector of per-thread instruction-based event queues.  Used for
-     * scheduling events based on number of instructions committed by
-     * a particular thread.
-     */
-    EventQueue **comInstEventQueue;
-
-    /**
-     * Vector of per-thread load-based event queues.  Used for
-     * scheduling events based on number of loads committed by
-     *a particular thread.
-     */
-    EventQueue **comLoadEventQueue;
-
     System *system;
 
     /**
@@ -399,7 +398,7 @@ class BaseCPU : public MemObject
      * uniform data format for all CPU models and promotes better code
      * reuse.
      *
-     * @param os The stream to serialize to.
+     * @param cp The stream to serialize to.
      */
     void serialize(CheckpointOut &cp) const override;
 
@@ -412,14 +411,13 @@ class BaseCPU : public MemObject
      * promotes better code reuse.
 
      * @param cp The checkpoint use.
-     * @param section The section name of this object.
      */
     void unserialize(CheckpointIn &cp) override;
 
     /**
      * Serialize a single thread.
      *
-     * @param os The stream to serialize to.
+     * @param cp The stream to serialize to.
      * @param tid ID of the current thread.
      */
     virtual void serializeThread(CheckpointOut &cp, ThreadID tid) const {};
@@ -428,7 +426,6 @@ class BaseCPU : public MemObject
      * Unserialize one thread.
      *
      * @param cp The checkpoint use.
-     * @param section The section name of this thread.
      * @param tid ID of the current thread.
      */
     virtual void unserializeThread(CheckpointIn &cp, ThreadID tid) {};
@@ -453,21 +450,6 @@ class BaseCPU : public MemObject
     void scheduleInstStop(ThreadID tid, Counter insts, const char *cause);
 
     /**
-     * Schedule an event that exits the simulation loops after a
-     * predefined number of load operations.
-     *
-     * This method is usually called from the configuration script to
-     * get an exit event some time in the future. It is typically used
-     * when the script wants to simulate for a specific number of
-     * loads rather than ticks.
-     *
-     * @param tid Thread monitor.
-     * @param loads Number of load instructions into the future.
-     * @param cause Cause to signal in the exit event.
-     */
-    void scheduleLoadStop(ThreadID tid, Counter loads, const char *cause);
-
-    /**
      * Get the number of instructions executed by the specified thread
      * on this CPU. Used by Python to control simulation.
      *
@@ -487,8 +469,9 @@ class BaseCPU : public MemObject
      * instruction.
      *
      * @param inst Instruction that just committed
+     * @param pc PC of the instruction that just committed
      */
-    virtual void probeInstCommit(const StaticInstPtr &inst);
+    virtual void probeInstCommit(const StaticInstPtr &inst, Addr pc);
 
    protected:
     /**
@@ -509,6 +492,7 @@ class BaseCPU : public MemObject
      * instructions may call notify once for the entire bundle.
      */
     ProbePoints::PMUUPtr ppRetiredInsts;
+    ProbePoints::PMUUPtr ppRetiredInstsPC;
 
     /** Retired load instructions */
     ProbePoints::PMUUPtr ppRetiredLoads;
@@ -615,10 +599,14 @@ class BaseCPU : public MemObject
     }
 
   public:
-    // Number of CPU cycles simulated
-    Stats::Scalar numCycles;
-    Stats::Scalar numWorkItemsStarted;
-    Stats::Scalar numWorkItemsCompleted;
+    struct BaseCPUStats : public Stats::Group
+    {
+        BaseCPUStats(Stats::Group *parent);
+        // Number of CPU cycles simulated
+        Stats::Scalar numCycles;
+        Stats::Scalar numWorkItemsStarted;
+        Stats::Scalar numWorkItemsCompleted;
+    } baseStats;
 
   private:
     std::vector<AddressMonitor> addressMonitor;
@@ -626,7 +614,7 @@ class BaseCPU : public MemObject
   public:
     void armMonitor(ThreadID tid, Addr address);
     bool mwait(ThreadID tid, PacketPtr pkt);
-    void mwaitAtomic(ThreadID tid, ThreadContext *tc, BaseTLB *dtb);
+    void mwaitAtomic(ThreadID tid, ThreadContext *tc, BaseMMU *mmu);
     AddressMonitor *getCpuAddrMonitor(ThreadID tid)
     {
         assert(tid < numThreads);

@@ -25,18 +25,19 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-
-from MemObject import MemObject
 from m5.params import *
 from m5.proxy import *
 
-class RubyTester(MemObject):
+from m5.objects.ClockedObject import ClockedObject
+
+class RubyTester(ClockedObject):
     type = 'RubyTester'
     cxx_header = "cpu/testers/rubytest/RubyTester.hh"
     num_cpus = Param.Int("number of cpus / RubyPorts")
-    cpuInstDataPort = VectorMasterPort("cpu combo ports to inst & data caches")
-    cpuInstPort = VectorMasterPort("cpu ports to only inst caches")
-    cpuDataPort = VectorMasterPort("cpu ports to only data caches")
+    cpuInstDataPort = VectorRequestPort("cpu combo ports to inst & "
+                                        "data caches")
+    cpuInstPort = VectorRequestPort("cpu ports to only inst caches")
+    cpuDataPort = VectorRequestPort("cpu ports to only data caches")
     checks_to_complete = Param.Int(100, "checks to complete")
     deadlock_threshold = Param.Int(50000, "how often to check for deadlock")
     wakeup_frequency = Param.Int(10, "number of cycles between wakeups")

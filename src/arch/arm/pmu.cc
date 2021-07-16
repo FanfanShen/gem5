@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2014, 2017-2018 ARM Limited
+ * Copyright (c) 2011-2014, 2017-2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,11 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Dam Sunwoo
- *          Matt Horsnell
- *          Andreas Sandberg
- *          Jose Marinho
  */
 
 #include "arch/arm/pmu.hh"
@@ -54,20 +49,20 @@
 
 namespace ArmISA {
 
-const MiscReg PMU::reg_pmcr_wr_mask = 0x39;
+const RegVal PMU::reg_pmcr_wr_mask = 0x39;
 
-PMU::PMU(const ArmPMUParams *p)
+PMU::PMU(const ArmPMUParams &p)
     : SimObject(p), BaseISADevice(),
       reg_pmcnten(0), reg_pmcr(0),
       reg_pmselr(0), reg_pminten(0), reg_pmovsr(0),
       reg_pmceid0(0),reg_pmceid1(0),
       clock_remainder(0),
-      maximumCounterCount(p->eventCounters),
+      maximumCounterCount(p.eventCounters),
       cycleCounter(*this, maximumCounterCount),
-      cycleCounterEventId(p->cycleEventId),
+      cycleCounterEventId(p.cycleEventId),
       swIncrementEvent(nullptr),
       reg_pmcr_conf(0),
-      interrupt(p->interrupt->get())
+      interrupt(nullptr)
 {
     DPRINTF(PMUVerbose, "Initializing the PMU.\n");
 
@@ -76,13 +71,13 @@ PMU::PMU(const ArmPMUParams *p)
               maximumCounterCount);
     }
 
-    warn_if(!interrupt, "ARM PMU: No interrupt specified, interrupt " \
+    warn_if(!p.interrupt, "ARM PMU: No interrupt specified, interrupt " \
             "delivery disabled.\n");
 
     /* Setup the performance counter ID registers */
     reg_pmcr_conf.imp = 0x41;    // ARM Ltd.
     reg_pmcr_conf.idcode = 0x00;
-    reg_pmcr_conf.n = p->eventCounters;
+    reg_pmcr_conf.n = p.eventCounters;
 
     // Setup the hard-coded cycle counter, which is equivalent to
     // architected counter event type 0x11.
@@ -97,8 +92,10 @@ void
 PMU::setThreadContext(ThreadContext *tc)
 {
     DPRINTF(PMUVerbose, "Assigning PMU to ContextID %i.\n", tc->contextId());
-    if (interrupt)
-        interrupt->setThreadContext(tc);
+    const auto &pmu_params = static_cast<const ArmPMUParams &>(params());
+
+    if (pmu_params.interrupt)
+        interrupt = pmu_params.interrupt->get(tc);
 }
 
 void
@@ -189,7 +186,7 @@ PMU::regProbeListeners()
 }
 
 void
-PMU::setMiscReg(int misc_reg, MiscReg val)
+PMU::setMiscReg(int misc_reg, RegVal val)
 {
     DPRINTF(PMUVerbose, "setMiscReg(%s, 0x%x)\n",
             miscRegName[unflattenMiscReg(misc_reg)], val);
@@ -297,16 +294,16 @@ PMU::setMiscReg(int misc_reg, MiscReg val)
          miscRegName[misc_reg]);
 }
 
-MiscReg
+RegVal
 PMU::readMiscReg(int misc_reg)
 {
-    MiscReg val(readMiscRegInt(misc_reg));
+    RegVal val(readMiscRegInt(misc_reg));
     DPRINTF(PMUVerbose, "readMiscReg(%s): 0x%x\n",
             miscRegName[unflattenMiscReg(misc_reg)], val);
     return val;
 }
 
-MiscReg
+RegVal
 PMU::readMiscRegInt(int misc_reg)
 {
     misc_reg = unflattenMiscReg(misc_reg);
@@ -331,6 +328,7 @@ PMU::readMiscRegInt(int misc_reg)
       case MISCREG_PMSWINC: // Software Increment Register (RAZ)
         return 0;
 
+      case MISCREG_PMSELR_EL0:
       case MISCREG_PMSELR:
         return reg_pmselr;
 
@@ -496,7 +494,7 @@ PMU::CounterState::isFiltered() const
     const PMEVTYPER_t filter(this->filter);
     const SCR scr(pmu.isa->readMiscRegNoEffect(MISCREG_SCR));
     const CPSR cpsr(pmu.isa->readMiscRegNoEffect(MISCREG_CPSR));
-    const ExceptionLevel el(opModeToEL((OperatingMode)(uint8_t)cpsr.mode));
+    const ExceptionLevel el(currEL(cpsr));
     const bool secure(inSecureState(scr, cpsr));
 
     switch (el) {
@@ -532,7 +530,10 @@ PMU::CounterState::detach()
 void
 PMU::CounterState::attach(PMUEvent* event)
 {
-    value = 0;
+    if (!resetValue) {
+      value = 0;
+      resetValue = true;
+    }
     sourceEvent = event;
     sourceEvent->attachEvent(this);
 }
@@ -645,7 +646,7 @@ PMU::setCounterTypeRegister(CounterId id, PMEVTYPER_t val)
 }
 
 void
-PMU::setOverflowStatus(MiscReg new_val)
+PMU::setOverflowStatus(RegVal new_val)
 {
     const bool int_old = reg_pmovsr != 0;
     const bool int_new = new_val != 0;
@@ -806,9 +807,3 @@ PMU::SWIncrementEvent::write(uint64_t val)
 }
 
 } // namespace ArmISA
-
-ArmISA::PMU *
-ArmPMUParams::create()
-{
-    return new ArmISA::PMU(this);
-}

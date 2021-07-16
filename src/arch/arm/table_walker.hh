@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2016 ARM Limited
+ * Copyright (c) 2010-2016, 2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,9 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Giacomo Gabrielli
  */
 
 #ifndef __ARCH_ARM_TABLE_WALKER_HH__
@@ -43,11 +40,13 @@
 
 #include <list>
 
+#include "arch/arm/faults.hh"
 #include "arch/arm/miscregs.hh"
 #include "arch/arm/system.hh"
 #include "arch/arm/tlb.hh"
 #include "mem/request.hh"
 #include "params/ArmTableWalker.hh"
+#include "sim/clocked_object.hh"
 #include "sim/eventq.hh"
 
 class ThreadContext;
@@ -59,13 +58,15 @@ class Translation;
 class TLB;
 class Stage2MMU;
 
-class TableWalker : public MemObject
+class TableWalker : public ClockedObject
 {
   public:
     class WalkerState;
 
     class DescriptorBase {
       public:
+        DescriptorBase() : lookupLevel(L0) {}
+
         /** Current lookup level for this descriptor */
         LookupLevel lookupLevel;
 
@@ -131,7 +132,7 @@ class TableWalker : public MemObject
             return (EntryType)(data & 0x3);
         }
 
-        /** Is the page a Supersection (16MB)?*/
+        /** Is the page a Supersection (16 MiB)?*/
         bool supersection() const
         {
             return bits(data, 18);
@@ -228,7 +229,7 @@ class TableWalker : public MemObject
          */
         bool secure(bool have_security, WalkerState *currState) const
         {
-            if (have_security) {
+            if (have_security && currState->secureLookup) {
                 if (type() == PageTable)
                     return !bits(data, 3);
                 else
@@ -381,12 +382,26 @@ class TableWalker : public MemObject
             Page
         };
 
+        LongDescriptor()
+          : data(0), _dirty(false), aarch64(false), grainSize(Grain4KB),
+            physAddrRange(0)
+        {}
+
         /** The raw bits of the entry */
         uint64_t data;
 
         /** This entry has been modified (access flag set) and needs to be
          * written back to memory */
         bool _dirty;
+
+        /** True if the current lookup is performed in AArch64 state */
+        bool aarch64;
+
+        /** Width of the granule size in bits */
+        GrainSize grainSize;
+
+        uint8_t physAddrRange;
+
 
         virtual uint64_t getRawData() const
         {
@@ -414,22 +429,38 @@ class TableWalker : public MemObject
             return have_security && (currState->secureLookup && !bits(data, 5));
         }
 
-        /** True if the current lookup is performed in AArch64 state */
-        bool aarch64;
-
-        /** Width of the granule size in bits */
-        GrainSize grainSize;
-
         /** Return the descriptor type */
         EntryType type() const
         {
             switch (bits(data, 1, 0)) {
               case 0x1:
-                // In AArch64 blocks are not allowed at L0 for the 4 KB granule
-                // and at L1 for 16/64 KB granules
-                if (grainSize > Grain4KB)
-                    return lookupLevel == L2 ? Block : Invalid;
-                return lookupLevel == L0 || lookupLevel == L3 ? Invalid : Block;
+                // In AArch64 blocks are not allowed at L0 for the
+                // 4 KiB granule and at L1 for 16/64 KiB granules
+                switch (grainSize) {
+                  case Grain4KB:
+                    if (lookupLevel == L0 || lookupLevel == L3)
+                        return Invalid;
+                    else
+                        return Block;
+
+                  case Grain16KB:
+                    if (lookupLevel == L2)
+                        return Block;
+                    else
+                        return Invalid;
+
+                  case Grain64KB:
+                    // With Armv8.2-LPA (52bit PA) L1 Block descriptors
+                    // are allowed for 64KiB granule
+                    if ((lookupLevel == L1 && physAddrRange == 52) ||
+                        lookupLevel == L2)
+                        return Block;
+                    else
+                        return Invalid;
+
+                  default:
+                    return Invalid;
+                }
               case 0x3:
                 return lookupLevel == L3 ? Page : Table;
               default:
@@ -443,12 +474,13 @@ class TableWalker : public MemObject
             if (type() == Block) {
                 switch (grainSize) {
                     case Grain4KB:
-                        return lookupLevel == L1 ? 30 /* 1 GB */
-                                                 : 21 /* 2 MB */;
+                        return lookupLevel == L1 ? 30 /* 1 GiB */
+                                                 : 21 /* 2 MiB */;
                     case Grain16KB:
-                        return 25  /* 32 MB */;
+                        return 25  /* 32 MiB */;
                     case Grain64KB:
-                        return 29 /* 512 MB */;
+                        return lookupLevel == L1 ? 42 /* 4 TiB */
+                                                 : 29 /* 512 MiB */;
                     default:
                         panic("Invalid AArch64 VM granule size\n");
                 }
@@ -469,36 +501,39 @@ class TableWalker : public MemObject
         /** Return the physical frame, bits shifted right */
         Addr pfn() const
         {
-            if (aarch64)
-                return bits(data, 47, offsetBits());
-            return bits(data, 39, offsetBits());
-        }
-
-        /** Return the complete physical address given a VA */
-        Addr paddr(Addr va) const
-        {
-            int n = offsetBits();
-            if (aarch64)
-                return mbits(data, 47, n) | mbits(va, n - 1, 0);
-            return mbits(data, 39, n) | mbits(va, n - 1, 0);
+            return paddr() >> offsetBits();
         }
 
         /** Return the physical address of the entry */
         Addr paddr() const
         {
-            if (aarch64)
-                return mbits(data, 47, offsetBits());
-            return mbits(data, 39, offsetBits());
+            Addr addr = 0;
+            if (aarch64) {
+                addr = mbits(data, 47, offsetBits());
+                if (physAddrRange == 52 && grainSize == Grain64KB) {
+                    addr |= bits(data, 15, 12) << 48;
+                }
+            } else {
+                addr = mbits(data, 39, offsetBits());
+            }
+            return addr;
         }
 
         /** Return the address of the next page table */
         Addr nextTableAddr() const
         {
             assert(type() == Table);
-            if (aarch64)
-                return mbits(data, 47, grainSize);
-            else
-                return mbits(data, 39, 12);
+            Addr table_address = 0;
+            if (aarch64) {
+                table_address = mbits(data, 47, grainSize);
+                // Using 52bit if Armv8.2-LPA is implemented
+                if (physAddrRange == 52 && grainSize == Grain64KB)
+                    table_address |= bits(data, 15, 12) << 48;
+            } else {
+                table_address = mbits(data, 39, 12);
+            }
+
+            return table_address;
         }
 
         /** Return the address of the next descriptor */
@@ -750,6 +785,9 @@ class TableWalker : public MemObject
         /** If the access comes from the secure state. */
         bool isSecure;
 
+        /** True if table walks are uncacheable (for table descriptors) */
+        bool isUncacheable;
+
         /** Helper variables used to implement hierarchical access permissions
          * when the long-desc. format is used (LPAE only) */
         bool secureLookup;
@@ -757,6 +795,9 @@ class TableWalker : public MemObject
         bool userTable;
         bool xnTable;
         bool pxnTable;
+
+        /** Hierarchical access permission disable */
+        bool hpd;
 
         /** Flag indicating if a second stage of lookup is required */
         bool stage2Req;
@@ -820,8 +861,8 @@ class TableWalker : public MemObject
     /** Port shared by the two table walkers. */
     DmaPort* port;
 
-    /** Master id assigned by the MMU. */
-    MasterID masterId;
+    /** Requestor id assigned by the MMU. */
+    RequestorID requestorId;
 
     /** Indicates whether this table walker is part of the stage 2 mmu */
     const bool isStage2;
@@ -845,22 +886,25 @@ class TableWalker : public MemObject
     bool haveSecurity;
     bool _haveLPAE;
     bool _haveVirtualization;
-    uint8_t physAddrRange;
+    uint8_t _physAddrRange;
     bool _haveLargeAsid64;
 
     /** Statistics */
-    Stats::Scalar statWalks;
-    Stats::Scalar statWalksShortDescriptor;
-    Stats::Scalar statWalksLongDescriptor;
-    Stats::Vector statWalksShortTerminatedAtLevel;
-    Stats::Vector statWalksLongTerminatedAtLevel;
-    Stats::Scalar statSquashedBefore;
-    Stats::Scalar statSquashedAfter;
-    Stats::Histogram statWalkWaitTime;
-    Stats::Histogram statWalkServiceTime;
-    Stats::Histogram statPendingWalks; // essentially "L" of queueing theory
-    Stats::Vector statPageSizes;
-    Stats::Vector2d statRequestOrigin;
+   struct TableWalkerStats : public Stats::Group {
+        TableWalkerStats(Stats::Group *parent);
+        Stats::Scalar walks;
+        Stats::Scalar walksShortDescriptor;
+        Stats::Scalar walksLongDescriptor;
+        Stats::Vector walksShortTerminatedAtLevel;
+        Stats::Vector walksLongTerminatedAtLevel;
+        Stats::Scalar squashedBefore;
+        Stats::Scalar squashedAfter;
+        Stats::Histogram walkWaitTime;
+        Stats::Histogram walkServiceTime;
+        Stats::Histogram pendingWalks; // essentially "L" of queueing theory
+        Stats::Vector pageSizes;
+        Stats::Vector2d requestOrigin;
+    } stats;
 
     mutable unsigned pendingReqs;
     mutable Tick pendingChangeTick;
@@ -869,30 +913,23 @@ class TableWalker : public MemObject
     static const unsigned COMPLETED = 1;
 
   public:
-   typedef ArmTableWalkerParams Params;
-    TableWalker(const Params *p);
+    PARAMS(ArmTableWalker);
+    TableWalker(const Params &p);
     virtual ~TableWalker();
-
-    const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
 
     void init() override;
 
     bool haveLPAE() const { return _haveLPAE; }
     bool haveVirtualization() const { return _haveVirtualization; }
     bool haveLargeAsid64() const { return _haveLargeAsid64; }
+    uint8_t physAddrRange() const { return _physAddrRange; }
     /** Checks if all state is cleared and if so, completes drain */
     void completeDrain();
     DrainState drain() override;
     void drainResume() override;
 
-    BaseMasterPort& getMasterPort(const std::string &if_name,
-                                  PortID idx = InvalidPortID) override;
-
-    void regStats() override;
+    Port &getPort(const std::string &if_name,
+                  PortID idx=InvalidPortID) override;
 
     Fault walk(const RequestPtr &req, ThreadContext *tc,
                uint16_t asid, uint8_t _vmid,
@@ -902,7 +939,7 @@ class TableWalker : public MemObject
 
     void setTlb(TLB *_tlb) { tlb = _tlb; }
     TLB* getTlb() { return tlb; }
-    void setMMU(Stage2MMU *m, MasterID master_id);
+    void setMMU(Stage2MMU *m, RequestorID requestor_id);
     void memAttrs(ThreadContext *tc, TlbEntry &te, SCTLR sctlr,
                   uint8_t texcb, bool s);
     void memAttrsLPAE(ThreadContext *tc, TlbEntry &te,
@@ -940,14 +977,20 @@ class TableWalker : public MemObject
         Request::Flags flags, int queueIndex, Event *event,
         void (TableWalker::*doDescriptor)());
 
+    Fault generateLongDescFault(ArmFault::FaultSource src);
+
     void insertTableEntry(DescriptorBase &descriptor, bool longDescriptor);
 
     Fault processWalk();
     Fault processWalkLPAE();
-    static unsigned adjustTableSizeAArch64(unsigned tsz);
+
+    bool checkVAddrSizeFaultAArch64(Addr addr, int top_bit,
+        GrainSize granule, int tsz, bool low_range);
+
     /// Returns true if the address exceeds the range permitted by the
     /// system-wide setting or by the TCR_ELx IPS/PS setting
-    static bool checkAddrSizeFaultAArch64(Addr addr, int currPhysAddrRange);
+    bool checkAddrSizeFaultAArch64(Addr addr, int pa_range);
+
     Fault processWalkAArch64();
     void processWalkWrapper();
     EventFunctionWrapper doProcessEvent;

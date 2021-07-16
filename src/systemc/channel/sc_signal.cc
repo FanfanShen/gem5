@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include <sstream>
@@ -67,6 +65,20 @@ ScSignalBase::_signalChange()
 {
     _changeStamp = getChangeStamp();
     _valueChangedEvent.notify(sc_core::SC_ZERO_TIME);
+}
+
+void
+ScSignalBaseBinary::_signalPosedge()
+{
+    _posStamp = getChangeStamp();
+    _posedgeEvent.notify(sc_core::SC_ZERO_TIME);
+}
+
+void
+ScSignalBaseBinary::_signalNegedge()
+{
+    _negStamp = getChangeStamp();
+    _negedgeEvent.notify(sc_core::SC_ZERO_TIME);
 }
 
 namespace

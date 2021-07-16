@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #ifndef __DEV_VIRTIO_BLOCK_HH__
@@ -69,7 +67,7 @@ class VirtIOBlock : public VirtIODeviceBase
 {
   public:
     typedef VirtIOBlockParams Params;
-    VirtIOBlock(Params *params);
+    VirtIOBlock(const Params &params);
     virtual ~VirtIOBlock();
 
     void readConfig(PacketPtr pkt, Addr cfgOffset);
@@ -83,9 +81,9 @@ class VirtIOBlock : public VirtIODeviceBase
      * @note This needs to be changed if the supported feature set
      * changes!
      */
-    struct Config {
+    struct M5_ATTR_PACKED Config {
         uint64_t capacity;
-    } M5_ATTR_PACKED;
+    };
     Config config;
 
     /** @{
@@ -124,11 +122,11 @@ class VirtIOBlock : public VirtIODeviceBase
     /** @} */
 
     /** VirtIO block device request as sent by guest */
-    struct BlkRequest {
+    struct M5_ATTR_PACKED BlkRequest {
         RequestType type;
         uint32_t reserved;
         uint64_t sector;
-    } M5_ATTR_PACKED;
+    };
 
     /**
      * Device read request.
@@ -163,8 +161,9 @@ class VirtIOBlock : public VirtIODeviceBase
         : public VirtQueue
     {
       public:
-        RequestQueue(PortProxy &proxy, uint16_t size, VirtIOBlock &_parent)
-            : VirtQueue(proxy, size), parent(_parent) {}
+        RequestQueue(PortProxy &proxy, ByteOrder bo,
+                uint16_t size, VirtIOBlock &_parent)
+            : VirtQueue(proxy, bo, size), parent(_parent) {}
         virtual ~RequestQueue() {}
 
         void onNotifyDescriptor(VirtDescriptor *desc);

@@ -22,10 +22,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Gabe Black
-
-from __future__ import print_function
 
 import argparse
 import m5
@@ -40,20 +36,13 @@ from m5.objects import SystemC_Kernel, Root
 kernel = SystemC_Kernel()
 root = Root(full_system=True, systemc_kernel=kernel)
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--working-dir')
-
-args = parser.parse_args()
-if args.working_dir:
-    os.chdir(args.working_dir)
-
-kernel.sc_main();
+m5.systemc.sc_main('gem5_systemc_test');
 
 m5.instantiate(None)
 
 cause = m5.simulate(m5.MaxTick).getCause()
 
-result = kernel.sc_main_result()
+result = m5.systemc.sc_main_result()
 if result.code != 0:
     # Arguably this should make gem5 fail, but some tests purposefully
     # generate errors, and as long as their output matches that's still

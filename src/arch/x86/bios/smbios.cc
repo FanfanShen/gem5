@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/x86/bios/smbios.hh"
@@ -49,8 +47,6 @@
 #include "params/X86SMBiosSMBiosStructure.hh"
 #include "params/X86SMBiosSMBiosTable.hh"
 #include "sim/byteswap.hh"
-
-using namespace std;
 
 const char X86ISA::SMBios::SMBiosTable::SMBiosHeader::anchorString[] = "_SM_";
 const uint8_t X86ISA::SMBios::SMBiosTable::
@@ -77,18 +73,19 @@ composeBitVector(T vec)
 uint16_t
 X86ISA::SMBios::SMBiosStructure::writeOut(PortProxy& proxy, Addr addr)
 {
-    proxy.writeBlob(addr, (uint8_t *)(&type), 1);
+    proxy.writeBlob(addr, &type, 1);
 
     uint8_t length = getLength();
-    proxy.writeBlob(addr + 1, (uint8_t *)(&length), 1);
+    proxy.writeBlob(addr + 1, &length, 1);
 
-    uint16_t handleGuest = X86ISA::htog(handle);
-    proxy.writeBlob(addr + 2, (uint8_t *)(&handleGuest), 2);
+    uint16_t handleGuest = htole(handle);
+    proxy.writeBlob(addr + 2, &handleGuest, 2);
 
     return length + getStringLength();
 }
 
-X86ISA::SMBios::SMBiosStructure::SMBiosStructure(Params * p, uint8_t _type) :
+X86ISA::SMBios::SMBiosStructure::SMBiosStructure(
+        const Params &p, uint8_t _type) :
     SimObject(p), type(_type), handle(0), stringFields(false)
 {}
 
@@ -104,16 +101,15 @@ X86ISA::SMBios::SMBiosStructure::writeOutStrings(
     // If there are string fields but none of them are used, that's a
     // special case which is handled by this if.
     if (strings.size() == 0 && stringFields) {
-        proxy.writeBlob(addr + offset, (uint8_t *)(&nullTerminator), 1);
+        proxy.writeBlob(addr + offset, &nullTerminator, 1);
         offset++;
     } else {
         for (it = strings.begin(); it != strings.end(); it++) {
-            proxy.writeBlob(addr + offset,
-                    (uint8_t *)it->c_str(), it->length() + 1);
+            proxy.writeBlob(addr + offset, it->c_str(), it->length() + 1);
             offset += it->length() + 1;
         }
     }
-    proxy.writeBlob(addr + offset, (uint8_t *)(&nullTerminator), 1);
+    proxy.writeBlob(addr + offset, &nullTerminator, 1);
 }
 
 int
@@ -130,18 +126,18 @@ X86ISA::SMBios::SMBiosStructure::getStringLength()
 }
 
 int
-X86ISA::SMBios::SMBiosStructure::addString(string & newString)
+X86ISA::SMBios::SMBiosStructure::addString(const std::string &new_string)
 {
     stringFields = true;
     // If a string is empty, treat it as not existing. The index for empty
     // strings is 0.
-    if (newString.length() == 0)
+    if (new_string.length() == 0)
         return 0;
-    strings.push_back(newString);
+    strings.push_back(new_string);
     return strings.size();
 }
 
-string
+std::string
 X86ISA::SMBios::SMBiosStructure::readString(int n)
 {
     assert(n > 0 && n <= strings.size());
@@ -149,27 +145,28 @@ X86ISA::SMBios::SMBiosStructure::readString(int n)
 }
 
 void
-X86ISA::SMBios::SMBiosStructure::setString(int n, std::string & newString)
+X86ISA::SMBios::SMBiosStructure::setString(
+        int n, const std::string &new_string)
 {
     assert(n > 0 && n <= strings.size());
-    strings[n - 1] = newString;
+    strings[n - 1] = new_string;
 }
 
-X86ISA::SMBios::BiosInformation::BiosInformation(Params * p) :
+X86ISA::SMBios::BiosInformation::BiosInformation(const Params &p) :
         SMBiosStructure(p, Type),
-        startingAddrSegment(p->starting_addr_segment),
-        romSize(p->rom_size),
-        majorVer(p->major), minorVer(p->minor),
-        embContFirmwareMajor(p->emb_cont_firmware_major),
-        embContFirmwareMinor(p->emb_cont_firmware_minor)
+        startingAddrSegment(p.starting_addr_segment),
+        romSize(p.rom_size),
+        majorVer(p.major), minorVer(p.minor),
+        embContFirmwareMajor(p.emb_cont_firmware_major),
+        embContFirmwareMinor(p.emb_cont_firmware_minor)
     {
-        vendor = addString(p->vendor);
-        version = addString(p->version);
-        releaseDate = addString(p->release_date);
+        vendor = addString(p.vendor);
+        version = addString(p.version);
+        releaseDate = addString(p.release_date);
 
-        characteristics = composeBitVector(p->characteristics);
+        characteristics = composeBitVector(p.characteristics);
         characteristicExtBytes =
-            composeBitVector(p->characteristic_ext_bytes);
+            composeBitVector(p.characteristic_ext_bytes);
     }
 
 uint16_t
@@ -177,41 +174,41 @@ X86ISA::SMBios::BiosInformation::writeOut(PortProxy& proxy, Addr addr)
 {
     uint8_t size = SMBiosStructure::writeOut(proxy, addr);
 
-    proxy.writeBlob(addr + 0x4, (uint8_t *)(&vendor), 1);
-    proxy.writeBlob(addr + 0x5, (uint8_t *)(&version), 1);
+    proxy.writeBlob(addr + 0x4, &vendor, 1);
+    proxy.writeBlob(addr + 0x5, &version, 1);
 
-    uint16_t startingAddrSegmentGuest = X86ISA::htog(startingAddrSegment);
-    proxy.writeBlob(addr + 0x6, (uint8_t *)(&startingAddrSegmentGuest), 2);
+    uint16_t startingAddrSegmentGuest = htole(startingAddrSegment);
+    proxy.writeBlob(addr + 0x6, &startingAddrSegmentGuest, 2);
 
-    proxy.writeBlob(addr + 0x8, (uint8_t *)(&releaseDate), 1);
-    proxy.writeBlob(addr + 0x9, (uint8_t *)(&romSize), 1);
+    proxy.writeBlob(addr + 0x8, &releaseDate, 1);
+    proxy.writeBlob(addr + 0x9, &romSize, 1);
 
-    uint64_t characteristicsGuest = X86ISA::htog(characteristics);
-    proxy.writeBlob(addr + 0xA, (uint8_t *)(&characteristicsGuest), 8);
+    uint64_t characteristicsGuest = htole(characteristics);
+    proxy.writeBlob(addr + 0xA, &characteristicsGuest, 8);
 
     uint16_t characteristicExtBytesGuest =
-        X86ISA::htog(characteristicExtBytes);
-    proxy.writeBlob(addr + 0x12, (uint8_t *)(&characteristicExtBytesGuest), 2);
+        htole(characteristicExtBytes);
+    proxy.writeBlob(addr + 0x12, &characteristicExtBytesGuest, 2);
 
-    proxy.writeBlob(addr + 0x14, (uint8_t *)(&majorVer), 1);
-    proxy.writeBlob(addr + 0x15, (uint8_t *)(&minorVer), 1);
-    proxy.writeBlob(addr + 0x16, (uint8_t *)(&embContFirmwareMajor), 1);
-    proxy.writeBlob(addr + 0x17, (uint8_t *)(&embContFirmwareMinor), 1);
+    proxy.writeBlob(addr + 0x14, &majorVer, 1);
+    proxy.writeBlob(addr + 0x15, &minorVer, 1);
+    proxy.writeBlob(addr + 0x16, &embContFirmwareMajor, 1);
+    proxy.writeBlob(addr + 0x17, &embContFirmwareMinor, 1);
 
     writeOutStrings(proxy, addr + getLength());
 
     return size;
 }
 
-X86ISA::SMBios::SMBiosTable::SMBiosTable(Params * p) :
-    SimObject(p), structures(p->structures)
+X86ISA::SMBios::SMBiosTable::SMBiosTable(const Params &p) :
+    SimObject(p), structures(p.structures)
 {
-    smbiosHeader.majorVersion = p->major_version;
-    smbiosHeader.minorVersion = p->minor_version;
-    assert(p->major_version <= 9);
-    assert(p->minor_version <= 9);
+    smbiosHeader.majorVersion = p.major_version;
+    smbiosHeader.minorVersion = p.minor_version;
+    assert(p.major_version <= 9);
+    assert(p.minor_version <= 9);
     smbiosHeader.intermediateHeader.smbiosBCDRevision =
-        (p->major_version << 4) | p->minor_version;
+        (p.major_version << 4) | p.minor_version;
 }
 
 void
@@ -231,21 +228,16 @@ X86ISA::SMBios::SMBiosTable::writeOut(PortProxy& proxy, Addr addr,
 
     // The checksum goes here, but we're figuring it out as we go.
 
-    proxy.writeBlob(addr + 0x5,
-            (uint8_t *)(&smbiosHeader.entryPointLength), 1);
+    proxy.writeBlob(addr + 0x5, &smbiosHeader.entryPointLength, 1);
     mainChecksum += smbiosHeader.entryPointLength;
-    proxy.writeBlob(addr + 0x6,
-            (uint8_t *)(&smbiosHeader.majorVersion), 1);
+    proxy.writeBlob(addr + 0x6, &smbiosHeader.majorVersion, 1);
     mainChecksum += smbiosHeader.majorVersion;
-    proxy.writeBlob(addr + 0x7,
-            (uint8_t *)(&smbiosHeader.minorVersion), 1);
+    proxy.writeBlob(addr + 0x7, &smbiosHeader.minorVersion, 1);
     mainChecksum += smbiosHeader.minorVersion;
     // Maximum structure size goes here, but we'll figure it out later.
-    proxy.writeBlob(addr + 0xA,
-            (uint8_t *)(&smbiosHeader.entryPointRevision), 1);
+    proxy.writeBlob(addr + 0xA, &smbiosHeader.entryPointRevision, 1);
     mainChecksum += smbiosHeader.entryPointRevision;
-    proxy.writeBlob(addr + 0xB,
-            (uint8_t *)(&smbiosHeader.formattedArea), 5);
+    proxy.writeBlob(addr + 0xB, &smbiosHeader.formattedArea, 5);
     for (int i = 0; i < 5; i++)
         mainChecksum += smbiosHeader.formattedArea[i];
 
@@ -255,7 +247,7 @@ X86ISA::SMBios::SMBiosTable::writeOut(PortProxy& proxy, Addr addr,
     uint8_t intChecksum = 0;
 
     proxy.writeBlob(addr + 0x10,
-            (uint8_t *)smbiosHeader.intermediateHeader.anchorString, 5);
+            smbiosHeader.intermediateHeader.anchorString, 5);
     for (int i = 0; i < 5; i++)
         intChecksum += smbiosHeader.intermediateHeader.anchorString[i];
 
@@ -263,23 +255,22 @@ X86ISA::SMBios::SMBiosTable::writeOut(PortProxy& proxy, Addr addr,
     // Then the length of the structure table which we'll find later
 
     uint32_t tableAddrGuest =
-        X86ISA::htog(smbiosHeader.intermediateHeader.tableAddr);
-    proxy.writeBlob(addr + 0x18, (uint8_t *)(&tableAddrGuest), 4);
+        htole(smbiosHeader.intermediateHeader.tableAddr);
+    proxy.writeBlob(addr + 0x18, &tableAddrGuest, 4);
     for (int i = 0; i < 4; i++) {
         intChecksum += tableAddrGuest;
         tableAddrGuest >>= 8;
     }
 
-    uint16_t numStructs = X86ISA::gtoh(structures.size());
-    proxy.writeBlob(addr + 0x1C, (uint8_t *)(&numStructs), 2);
+    uint16_t numStructs = letoh(structures.size());
+    proxy.writeBlob(addr + 0x1C, &numStructs, 2);
     for (int i = 0; i < 2; i++) {
         intChecksum += numStructs;
         numStructs >>= 8;
     }
 
     proxy.writeBlob(addr + 0x1E,
-            (uint8_t *)(&smbiosHeader.intermediateHeader.smbiosBCDRevision),
-            1);
+            &smbiosHeader.intermediateHeader.smbiosBCDRevision, 1);
     intChecksum += smbiosHeader.intermediateHeader.smbiosBCDRevision;
 
     /*
@@ -303,8 +294,8 @@ X86ISA::SMBios::SMBiosTable::writeOut(PortProxy& proxy, Addr addr,
      * Header
      */
 
-    maxSize = X86ISA::htog(maxSize);
-    proxy.writeBlob(addr + 0x8, (uint8_t *)(&maxSize), 2);
+    maxSize = htole(maxSize);
+    proxy.writeBlob(addr + 0x8, &maxSize, 2);
     for (int i = 0; i < 2; i++) {
         mainChecksum += maxSize;
         maxSize >>= 8;
@@ -312,32 +303,20 @@ X86ISA::SMBios::SMBiosTable::writeOut(PortProxy& proxy, Addr addr,
 
     // Set the checksum
     mainChecksum = -mainChecksum;
-    proxy.writeBlob(addr + 0x4, (uint8_t *)(&mainChecksum), 1);
+    proxy.writeBlob(addr + 0x4, &mainChecksum, 1);
 
     /*
      * Intermediate header
      */
 
     uint16_t tableSize = offset;
-    tableSize = X86ISA::htog(tableSize);
-    proxy.writeBlob(addr + 0x16, (uint8_t *)(&tableSize), 2);
+    tableSize = htole(tableSize);
+    proxy.writeBlob(addr + 0x16, &tableSize, 2);
     for (int i = 0; i < 2; i++) {
         intChecksum += tableSize;
         tableSize >>= 8;
     }
 
     intChecksum = -intChecksum;
-    proxy.writeBlob(addr + 0x15, (uint8_t *)(&intChecksum), 1);
-}
-
-X86ISA::SMBios::BiosInformation *
-X86SMBiosBiosInformationParams::create()
-{
-    return new X86ISA::SMBios::BiosInformation(this);
-}
-
-X86ISA::SMBios::SMBiosTable *
-X86SMBiosSMBiosTableParams::create()
-{
-    return new X86ISA::SMBios::SMBiosTable(this);
+    proxy.writeBlob(addr + 0x15, &intChecksum, 1);
 }

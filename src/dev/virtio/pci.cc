@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "dev/virtio/pci.hh"
@@ -44,9 +42,9 @@
 #include "mem/packet_access.hh"
 #include "params/PciVirtIO.hh"
 
-PciVirtIO::PciVirtIO(const Params *params)
+PciVirtIO::PciVirtIO(const Params &params)
     : PciDevice(params), queueNotify(0), interruptDeliveryPending(false),
-      vio(*params->vio), callbackKick(this)
+      vio(*params.vio)
 {
     // Override the subsystem ID with the device ID from VirtIO
     config.subsystemID = htole(vio.deviceId);
@@ -55,9 +53,9 @@ PciVirtIO::PciVirtIO(const Params *params)
     // two. Nothing else is supported. Therefore, we need to force
     // that alignment here. We do not touch vio.configSize as this is
     // used to check accesses later on.
-    BARSize[0] = alignToPowerOfTwo(BAR0_SIZE_BASE + vio.configSize);
+    BARs[0]->size(alignToPowerOfTwo(BAR0_SIZE_BASE + vio.configSize));
 
-    vio.registerKickCallback(&callbackKick);
+    vio.registerKickCallback([this]() { kick(); });
 }
 
 PciVirtIO::~PciVirtIO()
@@ -67,7 +65,7 @@ PciVirtIO::~PciVirtIO()
 Tick
 PciVirtIO::read(PacketPtr pkt)
 {
-    const unsigned M5_VAR_USED size(pkt->getSize());
+    M5_VAR_USED const unsigned size(pkt->getSize());
     int bar;
     Addr offset;
     if (!getBAR(pkt->getAddr(), bar, offset))
@@ -148,7 +146,7 @@ PciVirtIO::read(PacketPtr pkt)
 Tick
 PciVirtIO::write(PacketPtr pkt)
 {
-    const unsigned M5_VAR_USED size(pkt->getSize());
+    M5_VAR_USED const unsigned size(pkt->getSize());
     int bar;
     Addr offset;
     if (!getBAR(pkt->getAddr(), bar, offset))
@@ -223,10 +221,4 @@ PciVirtIO::kick()
     DPRINTF(VIOIface, "kick(): Sending interrupt...\n");
     interruptDeliveryPending = true;
     intrPost();
-}
-
-PciVirtIO *
-PciVirtIOParams::create()
-{
-    return new PciVirtIO(this);
 }

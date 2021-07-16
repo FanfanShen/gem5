@@ -33,7 +33,7 @@ class MethodCallExprAST(ExprAST):
         self.proc_name = proc_name
         self.expr_ast_vec = expr_ast_vec
 
-    def generate(self, code):
+    def generate(self, code, **kwargs):
         tmp = self.slicc.codeFormatter()
         paramTypes = []
         for expr_ast in self.expr_ast_vec:
@@ -143,17 +143,17 @@ class MemberMethodCallExprAST(MethodCallExprAST):
                   methodId = implementedMethodId
                   return_type = obj_type.methods[methodId].return_type
 
+        # Check object type or interface of entries by checking
+        # AbstractCacheEntry since AbstractCacheEntry is used in
+        # protocol files.
         if str(obj_type) == "AbstractCacheEntry" or \
-           str(obj_type) == "AbstractEntry" or \
            ("interface" in obj_type and (
-            obj_type["interface"] == "AbstractCacheEntry" or
-            obj_type["interface"] == "AbstractEntry")):
+            obj_type["interface"] == "AbstractCacheEntry")):
             prefix = "%s((*(%s))." % (prefix, code)
         else:
             prefix = "%s((%s)." % (prefix, code)
 
         return obj_type, methodId, prefix
-
 
 class ClassMethodCallExprAST(MethodCallExprAST):
     def __init__(self, slicc, type_ast, proc_name, expr_ast_vec):

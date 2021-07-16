@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __SYSTEMC_EXT_CORE_SC_SIMCONTEXT_HH__
@@ -44,6 +42,9 @@ class sc_simcontext
     sc_curr_proc_handle get_curr_proc_info();
     sc_object *first_object();
     sc_object *next_object();
+
+    // Used by TLM.
+    bool elaboration_done();
 };
 
 sc_simcontext *sc_get_curr_simcontext();

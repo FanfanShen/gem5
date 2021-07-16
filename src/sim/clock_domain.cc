@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014 ARM Limited
+ * Copyright (c) 2013-2014, 2019 ARM Limited
  * Copyright (c) 2013 Cornell University
  * All rights reserved
  *
@@ -34,12 +34,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Vasileios Spiliopoulos
- *          Akash Bagdia
- *          Andreas Hansson
- *          Christopher Torng
- *          Stephan Diestelhorst
  */
 
 #include "sim/clock_domain.hh"
@@ -47,28 +41,31 @@
 #include <algorithm>
 #include <functional>
 
+#include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/ClockDomain.hh"
 #include "params/ClockDomain.hh"
 #include "params/DerivedClockDomain.hh"
 #include "params/SrcClockDomain.hh"
 #include "sim/clocked_object.hh"
+#include "sim/serialize.hh"
 #include "sim/voltage_domain.hh"
 
-void
-ClockDomain::regStats()
+ClockDomain::ClockDomainStats::ClockDomainStats(ClockDomain &cd)
+    : Stats::Group(&cd),
+    ADD_STAT(clock, UNIT_TICK, "Clock period in ticks")
 {
-    SimObject::regStats();
-
-    using namespace Stats;
-
     // Expose the current clock period as a stat for observability in
     // the dumps
-    currentClock
-        .scalar(_clockPeriod)
-        .name(params()->name + ".clock")
-        .desc("Clock period in ticks")
-        ;
+    clock.scalar(cd._clockPeriod);
+}
+
+ClockDomain::ClockDomain(const Params &p, VoltageDomain *voltage_domain)
+    : SimObject(p),
+      _clockPeriod(0),
+      _voltageDomain(voltage_domain),
+      stats(*this)
+{
 }
 
 double
@@ -77,13 +74,13 @@ ClockDomain::voltage() const
     return _voltageDomain->voltage();
 }
 
-SrcClockDomain::SrcClockDomain(const Params *p) :
-    ClockDomain(p, p->voltage_domain),
-    freqOpPoints(p->clock),
-    _domainID(p->domain_id),
-    _perfLevel(p->init_perf_level)
+SrcClockDomain::SrcClockDomain(const Params &p) :
+    ClockDomain(p, p.voltage_domain),
+    freqOpPoints(p.clock),
+    _domainID(p.domain_id),
+    _perfLevel(p.init_perf_level)
 {
-    VoltageDomain *vdom = p->voltage_domain;
+    VoltageDomain *vdom = p.voltage_domain;
 
     fatal_if(freqOpPoints.empty(), "DVFS: Empty set of frequencies for "\
              "domain %d %s\n", _domainID, name());
@@ -186,16 +183,10 @@ SrcClockDomain::startup()
     signalPerfLevelUpdate();
 }
 
-SrcClockDomain *
-SrcClockDomainParams::create()
-{
-    return new SrcClockDomain(this);
-}
-
-DerivedClockDomain::DerivedClockDomain(const Params *p) :
-    ClockDomain(p, p->clk_domain->voltageDomain()),
-    parent(*p->clk_domain),
-    clockDivider(p->clk_divider)
+DerivedClockDomain::DerivedClockDomain(const Params &p) :
+    ClockDomain(p, p.clk_domain->voltageDomain()),
+    parent(*p.clk_domain),
+    clockDivider(p.clk_divider)
 {
     // Ensure that clock divider setting works as frequency divider and never
     // work as frequency multiplier
@@ -231,10 +222,4 @@ DerivedClockDomain::updateClockPeriod()
     for (auto c = children.begin(); c != children.end(); ++c) {
         (*c)->updateClockPeriod();
     }
-}
-
-DerivedClockDomain *
-DerivedClockDomainParams::create()
-{
-    return new DerivedClockDomain(this);
 }

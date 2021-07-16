@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ron Dreslinski
- *          Andreas Hansson
  */
 
 /**
@@ -82,29 +79,22 @@ class SimpleMemory : public AbstractMemory
         { }
     };
 
-    class MemoryPort : public SlavePort
+    class MemoryPort : public ResponsePort
     {
-
       private:
-
         SimpleMemory& memory;
 
       public:
-
         MemoryPort(const std::string& _name, SimpleMemory& _memory);
 
       protected:
-
-        Tick recvAtomic(PacketPtr pkt);
-
-        void recvFunctional(PacketPtr pkt);
-
-        bool recvTimingReq(PacketPtr pkt);
-
-        void recvRespRetry();
-
-        AddrRangeList getAddrRanges() const;
-
+        Tick recvAtomic(PacketPtr pkt) override;
+        Tick recvAtomicBackdoor(
+                PacketPtr pkt, MemBackdoorPtr &_backdoor) override;
+        void recvFunctional(PacketPtr pkt) override;
+        bool recvTimingReq(PacketPtr pkt) override;
+        void recvRespRetry() override;
+        AddrRangeList getAddrRanges() const override;
     };
 
     MemoryPort port;
@@ -183,24 +173,20 @@ class SimpleMemory : public AbstractMemory
 
   public:
 
-    SimpleMemory(const SimpleMemoryParams *p);
+    SimpleMemory(const SimpleMemoryParams &p);
 
     DrainState drain() override;
 
-    BaseSlavePort& getSlavePort(const std::string& if_name,
-                                PortID idx = InvalidPortID) override;
+    Port &getPort(const std::string &if_name,
+                  PortID idx=InvalidPortID) override;
     void init() override;
 
   protected:
-
     Tick recvAtomic(PacketPtr pkt);
-
+    Tick recvAtomicBackdoor(PacketPtr pkt, MemBackdoorPtr &_backdoor);
     void recvFunctional(PacketPtr pkt);
-
     bool recvTimingReq(PacketPtr pkt);
-
     void recvRespRetry();
-
 };
 
 #endif //__MEM_SIMPLE_MEMORY_HH__

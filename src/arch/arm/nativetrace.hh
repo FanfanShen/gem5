@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_ARM_NATIVETRACE_HH__
@@ -98,16 +96,10 @@ class ArmNativeTrace : public NativeTrace
     bool stopOnPCError;
 
   public:
-    typedef ArmNativeTraceParams Params;
+    using Params = ArmNativeTraceParams;
 
-    const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
-
-    ArmNativeTrace(const Params *p) :
-        NativeTrace(p), stopOnPCError(p->stop_on_pc_error)
+    ArmNativeTrace(const Params &p) :
+        NativeTrace(p), stopOnPCError(p.stop_on_pc_error)
     {}
 
     void check(NativeTraceRecord *record);

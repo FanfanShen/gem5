@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 #ifndef __DEV_ARM_A9SCU_HH__
@@ -62,7 +60,7 @@ class A9SCU : public BasicPioDevice
       * The constructor for RealView just registers itself with the MMU.
       * @param p params structure
       */
-    A9SCU(Params *p);
+    A9SCU(const Params &p);
 
     /**
      * Handle a read to the device

@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 #include "cpu/timing_expr.hh"
@@ -198,52 +196,4 @@ uint64_t TimingExprIf::eval(TimingExprEvalContext &context)
         return trueExpr->eval(context);
     else
         return falseExpr->eval(context);
-}
-
-TimingExprLiteral *
-TimingExprLiteralParams::create()
-{
-    return new TimingExprLiteral(this);
-}
-
-TimingExprSrcReg *
-TimingExprSrcRegParams::create()
-{
-    return new TimingExprSrcReg(this);
-}
-
-TimingExprReadIntReg *
-TimingExprReadIntRegParams::create()
-{
-    return new TimingExprReadIntReg(this);
-}
-
-TimingExprLet *
-TimingExprLetParams::create()
-{
-    return new TimingExprLet(this);
-}
-
-TimingExprRef *
-TimingExprRefParams::create()
-{
-    return new TimingExprRef(this);
-}
-
-TimingExprUn *
-TimingExprUnParams::create()
-{
-    return new TimingExprUn(this);
-}
-
-TimingExprBin *
-TimingExprBinParams::create()
-{
-    return new TimingExprBin(this);
-}
-
-TimingExprIf *
-TimingExprIfParams::create()
-{
-    return new TimingExprIf(this);
 }

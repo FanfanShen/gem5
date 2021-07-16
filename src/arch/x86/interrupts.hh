@@ -45,21 +45,19 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Andreas Hansson
  */
 
 #ifndef __ARCH_X86_INTERRUPTS_HH__
 #define __ARCH_X86_INTERRUPTS_HH__
 
-#include "arch/x86/regs/apic.hh"
+#include "arch/generic/interrupts.hh"
 #include "arch/x86/faults.hh"
 #include "arch/x86/intmessage.hh"
+#include "arch/x86/regs/apic.hh"
 #include "base/bitfield.hh"
 #include "cpu/thread_context.hh"
-#include "dev/x86/intdev.hh"
 #include "dev/io_device.hh"
+#include "dev/x86/intdev.hh"
 #include "params/X86LocalApic.hh"
 #include "sim/eventq.hh"
 
@@ -68,13 +66,17 @@ class BaseCPU;
 
 int divideFromConf(uint32_t conf);
 
-namespace X86ISA {
+namespace X86ISA
+{
 
 ApicRegIndex decodeAddr(Addr paddr);
 
-class Interrupts : public BasicPioDevice, IntDevice
+class Interrupts : public BaseInterrupts
 {
   protected:
+    System *sys;
+    ClockDomain &clockDomain;
+
     // Storage for the APIC registers
     uint32_t regs[NUM_APIC_REGS];
 
@@ -165,14 +167,21 @@ class Interrupts : public BasicPioDevice, IntDevice
         return bits(regs[base + (vector / 32)], vector % 32);
     }
 
-    void requestInterrupt(uint8_t vector, uint8_t deliveryMode, bool level);
+    Tick clockPeriod() const { return clockDomain.clockPeriod(); }
 
-    BaseCPU *cpu;
+    void requestInterrupt(uint8_t vector, uint8_t deliveryMode, bool level);
 
     int initialApicId;
 
-    // Port for receiving interrupts
-    IntSlavePort intSlavePort;
+    // Ports for interrupts.
+    IntResponsePort<Interrupts> intResponsePort;
+    IntRequestPort<Interrupts> intRequestPort;
+
+    // Port for memory mapped register accesses.
+    PioPort<Interrupts> pioPort;
+
+    Tick pioDelay;
+    Addr pioAddr = MaxAddr;
 
   public:
 
@@ -181,15 +190,9 @@ class Interrupts : public BasicPioDevice, IntDevice
     /*
      * Params stuff.
      */
-    typedef X86LocalApicParams Params;
+    using Params = X86LocalApicParams;
 
-    void setCPU(BaseCPU * newCPU);
-
-    const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
+    void setThreadContext(ThreadContext *_tc) override;
 
     /*
      * Initialize this object by registering it with the IO APIC.
@@ -197,12 +200,12 @@ class Interrupts : public BasicPioDevice, IntDevice
     void init() override;
 
     /*
-     * Functions to interact with the interrupt port from IntDevice.
+     * Functions to interact with the interrupt port.
      */
-    Tick read(PacketPtr pkt) override;
-    Tick write(PacketPtr pkt) override;
-    Tick recvMessage(PacketPtr pkt) override;
-    Tick recvResponse(PacketPtr pkt) override;
+    Tick read(PacketPtr pkt);
+    Tick write(PacketPtr pkt);
+    Tick recvMessage(PacketPtr pkt);
+    void completeIPI(PacketPtr pkt);
 
     bool
     triggerTimerInterrupt()
@@ -213,24 +216,20 @@ class Interrupts : public BasicPioDevice, IntDevice
         return entry.periodic;
     }
 
-    AddrRangeList getIntAddrRange() const override;
+    AddrRangeList getAddrRanges() const;
+    AddrRangeList getIntAddrRange() const;
 
-    BaseMasterPort &getMasterPort(const std::string &if_name,
-                                  PortID idx = InvalidPortID) override
+    Port &getPort(const std::string &if_name,
+                  PortID idx=InvalidPortID) override
     {
-        if (if_name == "int_master") {
-            return intMasterPort;
+        if (if_name == "int_requestor") {
+            return intRequestPort;
+        } else if (if_name == "int_responder") {
+            return intResponsePort;
+        } else if (if_name == "pio") {
+            return pioPort;
         }
-        return BasicPioDevice::getMasterPort(if_name, idx);
-    }
-
-    BaseSlavePort &getSlavePort(const std::string &if_name,
-                                PortID idx = InvalidPortID) override
-    {
-        if (if_name == "int_slave") {
-            return intSlavePort;
-        }
-        return BasicPioDevice::getSlavePort(if_name, idx);
+        return SimObject::getPort(if_name, idx);
     }
 
     /*
@@ -249,13 +248,13 @@ class Interrupts : public BasicPioDevice, IntDevice
      * Constructor.
      */
 
-    Interrupts(Params * p);
+    Interrupts(const Params &p);
 
     /*
      * Functions for retrieving interrupts for the CPU to handle.
      */
 
-    bool checkInterrupts(ThreadContext *tc) const;
+    bool checkInterrupts() const override;
     /**
      * Check if there are pending interrupts without ignoring the
      * interrupts disabled flag.
@@ -269,8 +268,8 @@ class Interrupts : public BasicPioDevice, IntDevice
      * @return true there are unmaskable interrupts pending.
      */
     bool hasPendingUnmaskable() const { return pendingUnmaskableInt; }
-    Fault getInterrupt(ThreadContext *tc);
-    void updateIntrInfo(ThreadContext *tc);
+    Fault getInterrupt() override;
+    void updateIntrInfo() override;
 
     /*
      * Serialization.
@@ -283,19 +282,19 @@ class Interrupts : public BasicPioDevice, IntDevice
      * eventually.
      */
     void
-    post(int int_num, int index)
+    post(int int_num, int index) override
     {
         panic("Interrupts::post unimplemented!\n");
     }
 
     void
-    clear(int int_num, int index)
+    clear(int int_num, int index) override
     {
         panic("Interrupts::clear unimplemented!\n");
     }
 
     void
-    clearAll()
+    clearAll() override
     {
         panic("Interrupts::clearAll unimplemented!\n");
     }

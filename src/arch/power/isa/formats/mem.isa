@@ -25,8 +25,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Timothy M. Jones
 
 ////////////////////////////////////////////////////////////////////
 //
@@ -39,8 +37,10 @@ def template LoadStoreDeclare {{
      */
     class %(class_name)s : public %(base_class)s
     {
-      public:
+      private:
+        %(reg_idx_arr_decl)s;
 
+      public:
         /// Constructor.
         %(class_name)s(ExtMachInst machInst);
 
@@ -56,6 +56,7 @@ def template LoadStoreConstructor {{
     %(class_name)s::%(class_name)s(ExtMachInst machInst)
          : %(base_class)s("%(mnemonic)s", machInst, %(op_class)s)
     {
+        %(set_reg_idx_arr)s;
         %(constructor)s;
     }
 }};
@@ -73,7 +74,7 @@ def template LoadExecute {{
         %(ea_code)s;
 
         if (fault == NoFault) {
-            fault = readMemAtomic(xc, traceData, EA, Mem, memAccessFlags);
+            fault = readMemAtomicBE(xc, traceData, EA, Mem, memAccessFlags);
             %(memacc_code)s;
         }
 
@@ -111,7 +112,7 @@ def template LoadCompleteAcc {{
                                       ExecContext *xc,
                                       Trace::InstRecord *traceData) const
     {
-        Addr M5_VAR_USED EA;
+        M5_VAR_USED Addr EA;
         Fault fault = NoFault;
 
         %(op_decl)s;
@@ -119,7 +120,7 @@ def template LoadCompleteAcc {{
 
         EA = pkt->req->getVaddr();
 
-        getMem(pkt, Mem, traceData);
+        getMemBE(pkt, Mem, traceData);
 
         if (fault == NoFault) {
             %(memacc_code)s;
@@ -150,7 +151,7 @@ def template StoreExecute {{
         }
 
         if (fault == NoFault) {
-            fault = writeMemAtomic(xc, traceData, Mem, EA, memAccessFlags,
+            fault = writeMemAtomicBE(xc, traceData, Mem, EA, memAccessFlags,
                     NULL);
         }
 
@@ -179,7 +180,7 @@ def template StoreInitiateAcc {{
         }
 
         if (fault == NoFault) {
-            fault = writeMemTiming(xc, traceData, Mem, EA, memAccessFlags,
+            fault = writeMemTimingBE(xc, traceData, Mem, EA, memAccessFlags,
                     NULL);
         }
 

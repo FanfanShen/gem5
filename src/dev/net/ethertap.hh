@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 /* @file
@@ -41,7 +39,6 @@
 #include "base/pollevent.hh"
 #include "config/use_tuntap.hh"
 #include "dev/net/etherint.hh"
-#include "dev/net/etherobject.hh"
 #include "dev/net/etherpkt.hh"
 
 #if USE_TUNTAP
@@ -56,18 +53,12 @@
 class TapEvent;
 class EtherTapInt;
 
-class EtherTapBase : public EtherObject
+class EtherTapBase : public SimObject
 {
   public:
-    typedef EtherTapBaseParams Params;
-    EtherTapBase(const Params *p);
+    using Params = EtherTapBaseParams;
+    EtherTapBase(const Params &p);
     virtual ~EtherTapBase();
-
-    const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
 
     void serialize(CheckpointOut &cp) const override;
     void unserialize(CheckpointIn &cp) override;
@@ -101,7 +92,8 @@ class EtherTapBase : public EtherObject
     EtherTapInt *interface;
 
   public:
-    EtherInt *getEthPort(const std::string &if_name, int idx) override;
+    Port &getPort(const std::string &if_name,
+                  PortID idx=InvalidPortID) override;
 
     bool recvSimulated(EthPacketPtr packet);
     void sendSimulated(void *data, size_t len);
@@ -138,15 +130,9 @@ class TapListener;
 class EtherTapStub : public EtherTapBase
 {
   public:
-    typedef EtherTapStubParams Params;
-    EtherTapStub(const Params *p);
+    using Params = EtherTapStubParams;
+    EtherTapStub(const Params &p);
     ~EtherTapStub();
-
-    const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
 
     void serialize(CheckpointOut &cp) const override;
     void unserialize(CheckpointIn &cp) override;
@@ -173,15 +159,9 @@ class EtherTapStub : public EtherTapBase
 class EtherTap : public EtherTapBase
 {
   public:
-    typedef EtherTapParams Params;
-    EtherTap(const Params *p);
+    using Params = EtherTapParams;
+    EtherTap(const Params &p);
     ~EtherTap();
-
-    const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
 
 
   protected:

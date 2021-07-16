@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/x86/insts/micromediaop.hh"
@@ -36,30 +34,34 @@
 
 namespace X86ISA
 {
-    std::string MediaOpReg::generateDisassembly(Addr pc,
-            const SymbolTable *symtab) const
-    {
-        std::stringstream response;
 
-        printMnemonic(response, instMnem, mnemonic);
-        printDestReg(response, 0, destSize);
-        response << ", ";
-        printSrcReg(response, 0, srcSize);
-        response << ", ";
-        printSrcReg(response, 1, srcSize);
-        return response.str();
-    }
+std::string
+MediaOpReg::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
+{
+    std::stringstream response;
 
-    std::string MediaOpImm::generateDisassembly(Addr pc,
-            const SymbolTable *symtab) const
-    {
-        std::stringstream response;
+    printMnemonic(response, instMnem, mnemonic);
+    printDestReg(response, 0, destSize);
+    response << ", ";
+    printSrcReg(response, 0, srcSize);
+    response << ", ";
+    printSrcReg(response, 1, srcSize);
+    return response.str();
+}
 
-        printMnemonic(response, instMnem, mnemonic);
-        printDestReg(response, 0, destSize);
-        response << ", ";
-        printSrcReg(response, 0, srcSize);
-        ccprintf(response, ", %#x", imm8);
-        return response.str();
-    }
+std::string
+MediaOpImm::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
+{
+    std::stringstream response;
+
+    printMnemonic(response, instMnem, mnemonic);
+    printDestReg(response, 0, destSize);
+    response << ", ";
+    printSrcReg(response, 0, srcSize);
+    ccprintf(response, ", %#x", imm8);
+    return response.str();
+}
+
 }

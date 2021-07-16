@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 ARM Limited
+ * Copyright (c) 2017,2019 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Lena Olson
  */
 
 #include "mem/ruby/structures/DirectoryMemory.hh"
@@ -51,10 +49,8 @@
 #include "mem/ruby/system/RubySystem.hh"
 #include "sim/system.hh"
 
-using namespace std;
-
-DirectoryMemory::DirectoryMemory(const Params *p)
-    : SimObject(p), addrRanges(p->addr_ranges.begin(), p->addr_ranges.end())
+DirectoryMemory::DirectoryMemory(const Params &p)
+    : SimObject(p), addrRanges(p.addr_ranges.begin(), p.addr_ranges.end())
 {
     m_size_bytes = 0;
     for (const auto &r: addrRanges) {
@@ -68,7 +64,7 @@ void
 DirectoryMemory::init()
 {
     m_num_entries = m_size_bytes / RubySystem::getBlockSizeBytes();
-    m_entries = new AbstractEntry*[m_num_entries];
+    m_entries = new AbstractCacheEntry*[m_num_entries];
     for (int i = 0; i < m_num_entries; i++)
         m_entries[i] = NULL;
 }
@@ -109,7 +105,7 @@ DirectoryMemory::mapAddressToLocalIdx(Addr address)
     return ret >> RubySystem::getBlockSizeBits();
 }
 
-AbstractEntry*
+AbstractCacheEntry*
 DirectoryMemory::lookup(Addr address)
 {
     assert(isPresent(address));
@@ -120,8 +116,8 @@ DirectoryMemory::lookup(Addr address)
     return m_entries[idx];
 }
 
-AbstractEntry*
-DirectoryMemory::allocate(Addr address, AbstractEntry *entry)
+AbstractCacheEntry*
+DirectoryMemory::allocate(Addr address, AbstractCacheEntry *entry)
 {
     assert(isPresent(address));
     uint64_t idx;
@@ -129,6 +125,7 @@ DirectoryMemory::allocate(Addr address, AbstractEntry *entry)
 
     idx = mapAddressToLocalIdx(address);
     assert(idx < m_num_entries);
+    assert(m_entries[idx] == NULL);
     entry->changePermission(AccessPermission_Read_Only);
     m_entries[idx] = entry;
 
@@ -136,7 +133,21 @@ DirectoryMemory::allocate(Addr address, AbstractEntry *entry)
 }
 
 void
-DirectoryMemory::print(ostream& out) const
+DirectoryMemory::deallocate(Addr address)
+{
+    assert(isPresent(address));
+    uint64_t idx;
+    DPRINTF(RubyCache, "Removing entry for address: %#x\n", address);
+
+    idx = mapAddressToLocalIdx(address);
+    assert(idx < m_num_entries);
+    assert(m_entries[idx] != NULL);
+    delete m_entries[idx];
+    m_entries[idx] = NULL;
+}
+
+void
+DirectoryMemory::print(std::ostream& out) const
 {
 }
 
@@ -144,10 +155,4 @@ void
 DirectoryMemory::recordRequestType(DirectoryRequestType requestType) {
     DPRINTF(RubyStats, "Recorded statistic: %s\n",
             DirectoryRequestType_to_string(requestType));
-}
-
-DirectoryMemory *
-RubyDirectoryMemoryParams::create()
-{
-    return new DirectoryMemory(this);
 }

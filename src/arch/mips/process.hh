@@ -24,38 +24,28 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
- *          Ali Saidi
  */
 
 #ifndef __MIPS_PROCESS_HH__
 #define __MIPS_PROCESS_HH__
 
-#include <string>
-#include <vector>
-
-#include "mem/page_table.hh"
 #include "sim/process.hh"
 
+namespace Loader
+{
 class ObjectFile;
+} // namespace Loader
 
 class MipsProcess : public Process
 {
-  protected:
-    MipsProcess(ProcessParams * params, ObjectFile *objFile);
+  public:
+    MipsProcess(const ProcessParams &params, ::Loader::ObjectFile *objFile);
 
+  protected:
     void initState();
 
     template<class IntType>
     void argsInit(int pageSize);
-
-  public:
-    MipsISA::IntReg getSyscallArg(ThreadContext *tc, int &i);
-    /// Explicitly import the otherwise hidden getSyscallArg
-    using Process::getSyscallArg;
-    void setSyscallArg(ThreadContext *tc, int i, MipsISA::IntReg val);
-    void setSyscallReturn(ThreadContext *tc, SyscallReturn return_value);
 };
 
 #endif // __MIPS_PROCESS_HH__

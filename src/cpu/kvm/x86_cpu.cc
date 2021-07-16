@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "cpu/kvm/x86_cpu.hh"
@@ -38,6 +36,8 @@
 
 #include "arch/registers.hh"
 #include "arch/x86/cpuid.hh"
+#include "arch/x86/faults.hh"
+#include "arch/x86/interrupts.hh"
 #include "arch/x86/regs/msr.hh"
 #include "arch/x86/utility.hh"
 #include "cpu/kvm/base.hh"
@@ -68,7 +68,7 @@ using namespace X86ISA;
 // data) is used to indicate that a segment has been accessed.
 #define SEG_TYPE_BIT_ACCESSED 1
 
-struct FXSave
+struct M5_ATTR_PACKED FXSave
 {
     uint16_t fcw;
     uint16_t fsw;
@@ -97,7 +97,7 @@ struct FXSave
     uint8_t xmm[16][16];
 
     uint64_t reserved[12];
-} M5_ATTR_PACKED;
+};
 
 static_assert(sizeof(FXSave) == 512, "Unexpected size of FXSave");
 
@@ -520,9 +520,9 @@ checkSeg(const char *name, const int idx, const struct kvm_segment &seg,
     // TODO: Check CS DB
 }
 
-X86KvmCPU::X86KvmCPU(X86KvmCPUParams *params)
+X86KvmCPU::X86KvmCPU(const X86KvmCPUParams &params)
     : BaseKvmCPU(params),
-      useXSave(params->useXSave)
+      useXSave(params.useXSave)
 {
     Kvm &kvm(*vm.kvm);
 
@@ -823,9 +823,6 @@ template <typename T>
 static void
 updateKvmStateFPUCommon(ThreadContext *tc, T &fpu)
 {
-    static_assert(sizeof(X86ISA::FloatRegBits) == 8,
-                  "Unexpected size of X86ISA::FloatRegBits");
-
     fpu.mxcsr = tc->readMiscRegNoEffect(MISCREG_MXCSR);
     fpu.fcw = tc->readMiscRegNoEffect(MISCREG_FCW);
     // No need to rebuild from MISCREG_FSW and MISCREG_TOP if we read
@@ -840,7 +837,8 @@ updateKvmStateFPUCommon(ThreadContext *tc, T &fpu)
     const unsigned top((fpu.fsw >> 11) & 0x7);
     for (int i = 0; i < 8; ++i) {
         const unsigned reg_idx((i + top) & 0x7);
-        const double value(tc->readFloatReg(FLOATREG_FPR(reg_idx)));
+        const double value(bitsToFloat64(
+                    tc->readFloatReg(FLOATREG_FPR(reg_idx))));
         DPRINTF(KvmContext, "Setting KVM FP reg %i (st[%i]) := %f\n",
                 reg_idx, i, value);
         X86ISA::storeFloat80(fpu.fpr[i], value);
@@ -849,10 +847,10 @@ updateKvmStateFPUCommon(ThreadContext *tc, T &fpu)
     // TODO: We should update the MMX state
 
     for (int i = 0; i < 16; ++i) {
-        *(X86ISA::FloatRegBits *)&fpu.xmm[i][0] =
-            tc->readFloatRegBits(FLOATREG_XMM_LOW(i));
-        *(X86ISA::FloatRegBits *)&fpu.xmm[i][8] =
-            tc->readFloatRegBits(FLOATREG_XMM_HIGH(i));
+        *(uint64_t *)&fpu.xmm[i][0] =
+            tc->readFloatReg(FLOATREG_XMM_LOW(i));
+        *(uint64_t *)&fpu.xmm[i][8] =
+            tc->readFloatReg(FLOATREG_XMM_HIGH(i));
     }
 }
 
@@ -1047,15 +1045,12 @@ updateThreadContextFPUCommon(ThreadContext *tc, const T &fpu)
 {
     const unsigned top((fpu.fsw >> 11) & 0x7);
 
-    static_assert(sizeof(X86ISA::FloatRegBits) == 8,
-                  "Unexpected size of X86ISA::FloatRegBits");
-
     for (int i = 0; i < 8; ++i) {
         const unsigned reg_idx((i + top) & 0x7);
         const double value(X86ISA::loadFloat80(fpu.fpr[i]));
         DPRINTF(KvmContext, "Setting gem5 FP reg %i (st[%i]) := %f\n",
                 reg_idx, i, value);
-        tc->setFloatReg(FLOATREG_FPR(reg_idx), value);
+        tc->setFloatReg(FLOATREG_FPR(reg_idx), floatToBits64(value));
     }
 
     // TODO: We should update the MMX state
@@ -1073,10 +1068,8 @@ updateThreadContextFPUCommon(ThreadContext *tc, const T &fpu)
     tc->setMiscRegNoEffect(MISCREG_FOP, fpu.last_opcode);
 
     for (int i = 0; i < 16; ++i) {
-        tc->setFloatRegBits(FLOATREG_XMM_LOW(i),
-                            *(X86ISA::FloatRegBits *)&fpu.xmm[i][0]);
-        tc->setFloatRegBits(FLOATREG_XMM_HIGH(i),
-                            *(X86ISA::FloatRegBits *)&fpu.xmm[i][8]);
+        tc->setFloatReg(FLOATREG_XMM_LOW(i), *(uint64_t *)&fpu.xmm[i][0]);
+        tc->setFloatReg(FLOATREG_XMM_HIGH(i), *(uint64_t *)&fpu.xmm[i][8]);
     }
 }
 
@@ -1148,8 +1141,8 @@ X86KvmCPU::deliverInterrupts()
         // they are getInterrupt() and updateIntrInfo() are called
         // atomically.
         EventQueue::ScopedMigration migrate(interrupts[0]->eventQueue());
-        fault = interrupts[0]->getInterrupt(tc);
-        interrupts[0]->updateIntrInfo(tc);
+        fault = interrupts[0]->getInterrupt();
+        interrupts[0]->updateIntrInfo();
     }
 
     X86Interrupt *x86int(dynamic_cast<X86Interrupt *>(fault.get()));
@@ -1192,8 +1185,10 @@ X86KvmCPU::kvmRun(Tick ticks)
 {
     struct kvm_run &kvm_run(*getKvmRunState());
 
-    if (interrupts[0]->checkInterruptsRaw()) {
-        if (interrupts[0]->hasPendingUnmaskable()) {
+    auto *lapic = dynamic_cast<X86ISA::Interrupts *>(interrupts[0]);
+
+    if (lapic->checkInterruptsRaw()) {
+        if (lapic->hasPendingUnmaskable()) {
             DPRINTF(KvmInt,
                     "Delivering unmaskable interrupt.\n");
             syncThreadContext();
@@ -1205,7 +1200,7 @@ X86KvmCPU::kvmRun(Tick ticks)
             // the thread context and check if there are /really/
             // interrupts that should be delivered now.
             syncThreadContext();
-            if (interrupts[0]->checkInterrupts(tc)) {
+            if (lapic->checkInterrupts()) {
                 DPRINTF(KvmInt,
                         "M5 has pending interrupts, delivering interrupt.\n");
 
@@ -1356,7 +1351,7 @@ X86KvmCPU::handleKvmExitIO()
     for (int i = 0; i < count; ++i) {
         RequestPtr io_req = std::make_shared<Request>(
             pAddr, kvm_run.io.size,
-            Request::UNCACHEABLE, dataMasterId());
+            Request::UNCACHEABLE, dataRequestorId());
 
         io_req->setContext(tc->contextId());
 
@@ -1625,10 +1620,4 @@ X86KvmCPU::setVCpuEvents(const struct kvm_vcpu_events &events)
 {
     if (ioctl(KVM_SET_VCPU_EVENTS, (void *)&events) == -1)
         panic("KVM: Failed to set guest debug registers\n");
-}
-
-X86KvmCPU *
-X86KvmCPUParams::create()
-{
-    return new X86KvmCPU(this);
 }

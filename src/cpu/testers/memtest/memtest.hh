@@ -36,10 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Steve Reinhardt
- *          Andreas Hansson
  */
 
 #ifndef __CPU_MEMTEST_MEMTEST_HH__
@@ -49,8 +45,9 @@
 #include <unordered_map>
 
 #include "base/statistics.hh"
-#include "mem/mem_object.hh"
+#include "mem/port.hh"
 #include "params/MemTest.hh"
+#include "sim/clocked_object.hh"
 #include "sim/eventq.hh"
 #include "sim/stats.hh"
 
@@ -67,18 +64,17 @@
  * both requests and responses, thus checking that the memory-system
  * is making progress.
  */
-class MemTest : public MemObject
+class MemTest : public ClockedObject
 {
 
   public:
 
     typedef MemTestParams Params;
-    MemTest(const Params *p);
+    MemTest(const Params &p);
 
-    virtual void regStats();
 
-    virtual BaseMasterPort &getMasterPort(const std::string &if_name,
-                                          PortID idx = InvalidPortID);
+    Port &getPort(const std::string &if_name,
+                  PortID idx=InvalidPortID) override;
 
   protected:
 
@@ -94,14 +90,14 @@ class MemTest : public MemObject
 
     EventFunctionWrapper noResponseEvent;
 
-    class CpuPort : public MasterPort
+    class CpuPort : public RequestPort
     {
         MemTest &memtest;
 
       public:
 
         CpuPort(const std::string &_name, MemTest &_memtest)
-            : MasterPort(_name, &_memtest), memtest(_memtest)
+            : RequestPort(_name, &_memtest), memtest(_memtest)
         { }
 
       protected:
@@ -130,7 +126,7 @@ class MemTest : public MemObject
     const unsigned percentUncacheable;
 
     /** Request id for all generated traffic */
-    MasterID masterId;
+    RequestorID requestorId;
 
     unsigned int id;
 
@@ -168,10 +164,14 @@ class MemTest : public MemObject
 
     const bool atomic;
 
-    const bool suppressFuncWarnings;
-
-    Stats::Scalar numReadsStat;
-    Stats::Scalar numWritesStat;
+    const bool suppressFuncErrors;
+  protected:
+    struct MemTestStats : public Stats::Group
+    {
+        MemTestStats(Stats::Group *parent);
+        Stats::Scalar numReads;
+        Stats::Scalar numWrites;
+    } stats;
 
     /**
      * Complete a request by checking the response.

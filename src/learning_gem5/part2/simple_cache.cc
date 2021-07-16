@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Jason Lowe-Power
  */
 
 #include "learning_gem5/part2/simple_cache.hh"
@@ -34,47 +32,37 @@
 #include "debug/SimpleCache.hh"
 #include "sim/system.hh"
 
-SimpleCache::SimpleCache(SimpleCacheParams *params) :
-    MemObject(params),
-    latency(params->latency),
-    blockSize(params->system->cacheLineSize()),
-    capacity(params->size / blockSize),
-    memPort(params->name + ".mem_side", this),
-    blocked(false), originalPacket(nullptr), waitingPortId(-1)
+SimpleCache::SimpleCache(const SimpleCacheParams &params) :
+    ClockedObject(params),
+    latency(params.latency),
+    blockSize(params.system->cacheLineSize()),
+    capacity(params.size / blockSize),
+    memPort(params.name + ".mem_side", this),
+    blocked(false), originalPacket(nullptr), waitingPortId(-1), stats(this)
 {
     // Since the CPU side ports are a vector of ports, create an instance of
     // the CPUSidePort for each connection. This member of params is
     // automatically created depending on the name of the vector port and
     // holds the number of connections to this port name
-    for (int i = 0; i < params->port_cpu_side_connection_count; ++i) {
+    for (int i = 0; i < params.port_cpu_side_connection_count; ++i) {
         cpuPorts.emplace_back(name() + csprintf(".cpu_side[%d]", i), i, this);
     }
 }
 
-BaseMasterPort&
-SimpleCache::getMasterPort(const std::string& if_name, PortID idx)
+Port &
+SimpleCache::getPort(const std::string &if_name, PortID idx)
 {
-    panic_if(idx != InvalidPortID, "This object doesn't support vector ports");
-
     // This is the name from the Python SimObject declaration in SimpleCache.py
     if (if_name == "mem_side") {
+        panic_if(idx != InvalidPortID,
+                 "Mem side of simple cache not a vector port");
         return memPort;
-    } else {
-        // pass it along to our super class
-        return MemObject::getMasterPort(if_name, idx);
-    }
-}
-
-BaseSlavePort&
-SimpleCache::getSlavePort(const std::string& if_name, PortID idx)
-{
-    // This is the name from the Python SimObject declaration (SimpleMemobj.py)
-    if (if_name == "cpu_side" && idx < cpuPorts.size()) {
+    } else if (if_name == "cpu_side" && idx < cpuPorts.size()) {
         // We should have already created all of the ports in the constructor
         return cpuPorts[idx];
     } else {
         // pass it along to our super class
-        return MemObject::getSlavePort(if_name, idx);
+        return ClockedObject::getPort(if_name, idx);
     }
 }
 
@@ -233,7 +221,7 @@ SimpleCache::handleResponse(PacketPtr pkt)
     // for any added latency.
     insert(pkt);
 
-    missLatency.sample(curTick() - missTime);
+    stats.missLatency.sample(curTick() - missTime);
 
     // If we had to upgrade the request packet to a full cache line, now we
     // can use that packet to construct the response.
@@ -241,7 +229,7 @@ SimpleCache::handleResponse(PacketPtr pkt)
         DPRINTF(SimpleCache, "Copying data from new packet to old\n");
         // We had to upgrade a previous packet. We can functionally deal with
         // the cache access now. It better be a hit.
-        bool hit M5_VAR_USED = accessFunctional(originalPacket);
+        M5_VAR_USED bool hit = accessFunctional(originalPacket);
         panic_if(!hit, "Should always hit after inserting");
         originalPacket->makeResponse();
         delete pkt; // We may need to delay this, I'm not sure.
@@ -298,12 +286,12 @@ SimpleCache::accessTiming(PacketPtr pkt)
 
     if (hit) {
         // Respond to the CPU side
-        hits++; // update stats
+        stats.hits++; // update stats
         DDUMP(SimpleCache, pkt->getConstPtr<uint8_t>(), pkt->getSize());
         pkt->makeResponse();
         sendResponse(pkt);
     } else {
-        misses++; // update stats
+        stats.misses++; // update stats
         missTime = curTick();
         // Forward to the memory side.
         // We can't directly forward the packet unless it is exactly the size
@@ -433,36 +421,14 @@ SimpleCache::sendRangeChange() const
     }
 }
 
-void
-SimpleCache::regStats()
+SimpleCache::SimpleCacheStats::SimpleCacheStats(Stats::Group *parent)
+      : Stats::Group(parent),
+      ADD_STAT(hits, UNIT_COUNT, "Number of hits"),
+      ADD_STAT(misses, UNIT_COUNT, "Number of misses"),
+      ADD_STAT(missLatency, UNIT_TICK, "Ticks for misses to the cache"),
+      ADD_STAT(hitRatio, UNIT_RATIO,
+               "The ratio of hits to the total accesses to the cache",
+               hits / (hits + misses))
 {
-    // If you don't do this you get errors about uninitialized stats.
-    MemObject::regStats();
-
-    hits.name(name() + ".hits")
-        .desc("Number of hits")
-        ;
-
-    misses.name(name() + ".misses")
-        .desc("Number of misses")
-        ;
-
-    missLatency.name(name() + ".missLatency")
-        .desc("Ticks for misses to the cache")
-        .init(16) // number of buckets
-        ;
-
-    hitRatio.name(name() + ".hitRatio")
-        .desc("The ratio of hits to the total accesses to the cache")
-        ;
-
-    hitRatio = hits / (hits + misses);
-
-}
-
-
-SimpleCache*
-SimpleCacheParams::create()
-{
-    return new SimpleCache(this);
+    missLatency.init(16); // number of buckets
 }

@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #ifndef __CPU_KVM_X86_CPU_HH__
@@ -41,7 +39,7 @@
 class X86KvmCPU : public BaseKvmCPU
 {
   public:
-    X86KvmCPU(X86KvmCPUParams *params);
+    X86KvmCPU(const X86KvmCPUParams &params);
     virtual ~X86KvmCPU();
 
     void startup() override;

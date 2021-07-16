@@ -24,10 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Gabe Black
- *          Steve Reinhardt
  */
 
 #include "arch/sparc/insts/integer.hh"
@@ -42,9 +38,9 @@ namespace SparcISA
 
 bool
 IntOp::printPseudoOps(std::ostream &os, Addr pc,
-                      const SymbolTable *symbab) const
+                      const Loader::SymbolTable *symbab) const
 {
-    if (!std::strcmp(mnemonic, "or") && _srcRegIdx[0].index() == 0) {
+    if (!std::strcmp(mnemonic, "or") && srcRegIdx(0).index() == 0) {
         printMnemonic(os, "mov");
         printSrcReg(os, 1);
         ccprintf(os, ", ");
@@ -56,10 +52,10 @@ IntOp::printPseudoOps(std::ostream &os, Addr pc,
 
 bool
 IntOpImm::printPseudoOps(std::ostream &os, Addr pc,
-                         const SymbolTable *symbab) const
+                         const Loader::SymbolTable *symbab) const
 {
     if (!std::strcmp(mnemonic, "or")) {
-        if (_numSrcRegs > 0 && _srcRegIdx[0].index() == 0) {
+        if (_numSrcRegs > 0 && srcRegIdx(0).index() == 0) {
             if (imm == 0) {
                 printMnemonic(os, "clr");
             } else {
@@ -80,14 +76,14 @@ IntOpImm::printPseudoOps(std::ostream &os, Addr pc,
 }
 
 std::string
-IntOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+IntOp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream response;
 
     if (printPseudoOps(response, pc, symtab))
         return response.str();
     printMnemonic(response, mnemonic);
-    printRegArray(response, _srcRegIdx, _numSrcRegs);
+    printRegArray(response, &srcRegIdx(0), _numSrcRegs);
     if (_numDestRegs && _numSrcRegs)
         response << ", ";
     printDestReg(response, 0);
@@ -95,14 +91,14 @@ IntOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 std::string
-IntOpImm::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+IntOpImm::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream response;
 
     if (printPseudoOps(response, pc, symtab))
         return response.str();
     printMnemonic(response, mnemonic);
-    printRegArray(response, _srcRegIdx, _numSrcRegs);
+    printRegArray(response, &srcRegIdx(0), _numSrcRegs);
     if (_numSrcRegs > 0)
         response << ", ";
     ccprintf(response, "%#x", imm);
@@ -113,7 +109,7 @@ IntOpImm::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 std::string
-SetHi::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+SetHi::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream response;
 

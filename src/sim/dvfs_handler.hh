@@ -33,10 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Vasileios Spiliopoulos
- *          Akash Bagdia
- *          Stephan Diestelhorst
  */
 
 /**
@@ -50,8 +46,12 @@
 #ifndef __SIM_DVFS_HANDLER_HH__
 #define __SIM_DVFS_HANDLER_HH__
 
+#include <cassert>
+#include <map>
 #include <vector>
 
+#include "base/logging.hh"
+#include "base/types.hh"
 #include "debug/DVFS.hh"
 #include "params/DVFSHandler.hh"
 #include "sim/clock_domain.hh"
@@ -72,7 +72,7 @@ class DVFSHandler : public SimObject
 {
   public:
     typedef DVFSHandlerParams Params;
-    DVFSHandler(const Params *p);
+    DVFSHandler(const Params &p);
 
     typedef SrcClockDomain::DomainID DomainID;
     typedef SrcClockDomain::PerfLevel PerfLevel;

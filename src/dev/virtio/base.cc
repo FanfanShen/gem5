@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2016 ARM Limited
+ * Copyright (c) 2014, 2016, 2021 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,19 +33,19 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "dev/virtio/base.hh"
 
+#include "base/trace.hh"
 #include "debug/VIO.hh"
 #include "params/VirtIODeviceBase.hh"
 #include "params/VirtIODummyDevice.hh"
+#include "sim/serialize.hh"
 
-VirtDescriptor::VirtDescriptor(PortProxy &_memProxy, VirtQueue &_queue,
-                               Index descIndex)
-    : memProxy(&_memProxy), queue(&_queue), _index(descIndex),
+VirtDescriptor::VirtDescriptor(PortProxy &_memProxy, ByteOrder bo,
+                               VirtQueue &_queue, Index descIndex)
+    : memProxy(&_memProxy), queue(&_queue), byteOrder(bo), _index(descIndex),
       desc{0, 0, 0, 0}
 {
 }
@@ -64,6 +64,7 @@ VirtDescriptor::operator=(VirtDescriptor &&rhs) noexcept
 {
     memProxy = std::move(rhs.memProxy);
     queue = std::move(rhs.queue);
+    byteOrder = std::move(rhs.byteOrder);
     _index = std::move(rhs._index);
     desc = std::move(rhs.desc);
 
@@ -81,8 +82,8 @@ VirtDescriptor::update()
     assert(_index < queue->getSize());
     const Addr desc_addr(vq_addr + sizeof(desc) * _index);
     vring_desc guest_desc;
-    memProxy->readBlob(desc_addr, (uint8_t *)&guest_desc, sizeof(guest_desc));
-    desc = vtoh_legacy(guest_desc);
+    memProxy->readBlob(desc_addr, &guest_desc, sizeof(guest_desc));
+    desc = gtoh(guest_desc, byteOrder);
     DPRINTF(VIO,
             "VirtDescriptor(%i): Addr: 0x%x, Len: %i, Flags: 0x%x, "
             "Next: 0x%x\n",
@@ -161,7 +162,7 @@ VirtDescriptor::write(size_t offset, const uint8_t *src, size_t size)
     if (!isOutgoing())
         panic("Trying to write to incoming buffer\n");
 
-    memProxy->writeBlob(desc.addr + offset, const_cast<uint8_t *>(src), size);
+    memProxy->writeBlob(desc.addr + offset, src, size);
 }
 
 void
@@ -224,14 +225,14 @@ VirtDescriptor::chainSize() const
 
 
 
-VirtQueue::VirtQueue(PortProxy &proxy, uint16_t size)
-    : _size(size), _address(0), memProxy(proxy),
-      avail(proxy, size), used(proxy, size),
+VirtQueue::VirtQueue(PortProxy &proxy, ByteOrder bo, uint16_t size)
+    : byteOrder(bo), _size(size), _address(0), memProxy(proxy),
+      avail(proxy, bo, size), used(proxy, bo, size),
       _last_avail(0)
 {
     descriptors.reserve(_size);
     for (int i = 0; i < _size; ++i)
-        descriptors.emplace_back(proxy, *this, i);
+        descriptors.emplace_back(proxy, bo, *this, i);
 }
 
 void
@@ -252,6 +253,16 @@ VirtQueue::unserialize(CheckpointIn &cp)
     // Use the address setter to ensure that the ring buffer addresses
     // are updated as well.
     setAddress(addr_in);
+}
+
+void
+VirtQueue::reset()
+{
+    _address = 0;
+    _last_avail = 0;
+
+    avail.reset();
+    used.reset();
 }
 
 void
@@ -322,13 +333,13 @@ VirtQueue::onNotify()
 }
 
 
-VirtIODeviceBase::VirtIODeviceBase(Params *params, DeviceId id,
+VirtIODeviceBase::VirtIODeviceBase(const Params &params, DeviceId id,
                                    size_t config_size, FeatureBits features)
     : SimObject(params),
       guestFeatures(0),
+      byteOrder(params.byte_order),
       deviceId(id), configSize(config_size), deviceFeatures(features),
-      _deviceStatus(0), _queueSelect(0),
-      transKick(NULL)
+      _deviceStatus(0), _queueSelect(0)
 {
 }
 
@@ -365,7 +376,7 @@ VirtIODeviceBase::reset()
     _deviceStatus = 0;
 
     for (QueueID i = 0; i < _queues.size(); ++i)
-        _queues[i]->setAddress(0);
+        _queues[i]->reset();
 }
 
 void
@@ -480,13 +491,7 @@ VirtIODeviceBase::registerQueue(VirtQueue &queue)
 }
 
 
-VirtIODummyDevice::VirtIODummyDevice(VirtIODummyDeviceParams *params)
+VirtIODummyDevice::VirtIODummyDevice(const VirtIODummyDeviceParams &params)
     : VirtIODeviceBase(params, ID_INVALID, 0, 0)
 {
-}
-
-VirtIODummyDevice *
-VirtIODummyDeviceParams::create()
-{
-    return new VirtIODummyDevice(this);
 }

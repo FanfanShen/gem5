@@ -34,15 +34,17 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Mbou Eyole
-//          Giacomo Gabrielli
 
 let {{
 
     header_output = ''
     decoder_output = ''
     exec_output = ''
+
+    zeroSveVecRegUpperPartCode = '''
+        ArmISA::ISA::zeroSveVecRegUpperPart(%s,
+            ArmStaticInst::getCurSveVecLen<uint64_t>(xc->tcBase()));
+    '''
 
     def mkMemAccMicroOp(name):
         global header_output, decoder_output, exec_output
@@ -78,15 +80,15 @@ let {{
                 for (unsigned i = 0; i < eCount; i++) {
                     switch (eSize) {
                       case 0x3:  // 64-bit
-                        writeVecElem(&x, (XReg) gtobe(
+                        writeVecElem(&x, (XReg) letobe(
                             (uint64_t) readVecElem(x, i, eSize)), i, eSize);
                         break;
                       case 0x2:  // 32-bit
-                        writeVecElem(&x, (XReg) gtobe(
+                        writeVecElem(&x, (XReg) letobe(
                             (uint32_t) readVecElem(x, i, eSize)), i, eSize);
                         break;
                       case 0x1:  // 16-bit
-                        writeVecElem(&x, (XReg) gtobe(
+                        writeVecElem(&x, (XReg) letobe(
                             (uint16_t) readVecElem(x, i, eSize)), i, eSize);
                         break;
                       default:  // 8-bit
@@ -97,16 +99,16 @@ let {{
                 for (unsigned i = 0; i < eCount; i++) {
                     switch (eSize) {
                       case 0x3:  // 64-bit
-                        writeVecElem(&x, (XReg) gtole(
-                            (uint64_t) readVecElem(x, i, eSize)), i, eSize);
+                        writeVecElem(&x, (XReg)readVecElem(x, i, eSize),
+                                     i, eSize);
                         break;
                       case 0x2:  // 32-bit
-                        writeVecElem(&x, (XReg) gtole(
-                            (uint32_t) readVecElem(x, i, eSize)), i, eSize);
+                        writeVecElem(&x, (XReg)readVecElem(x, i, eSize),
+                                     i, eSize);
                         break;
                       case 0x1:  // 16-bit
-                        writeVecElem(&x, (XReg) gtole(
-                            (uint16_t) readVecElem(x, i, eSize)), i, eSize);
+                        writeVecElem(&x, (XReg)readVecElem(x, i, eSize),
+                                     i, eSize);
                         break;
                       default:  // 8-bit
                         break;  // Nothing to do here
@@ -124,35 +126,37 @@ let {{
         regSetCode = ''
         for reg in range(4):
             regSetCode += '''
-            AA64FpDestP%(reg)d_uw = gtoh(memUnion.floatRegBits[%(reg)d]);
+            AA64FpDestP%(reg)d_uw = letoh(memUnion.floatRegBits[%(reg)d]);
             ''' % { 'reg' : reg }
 
         # Pull everything in from registers
         regGetCode = ''
         for reg in range(4):
             regGetCode += '''
-            memUnion.floatRegBits[%(reg)d] = htog(AA64FpDestP%(reg)d_uw);
+            memUnion.floatRegBits[%(reg)d] = htole(AA64FpDestP%(reg)d_uw);
             ''' % { 'reg' : reg }
 
         loadMemAccCode = convCode + regSetCode
         storeMemAccCode = regGetCode + convCode
 
-        loadIop = InstObjParams(name + 'ld',
+        loadIop = ArmInstObjParams(name + 'ld',
                 'MicroNeonLoad64',
                 'MicroNeonMemOp',
             {   'mem_decl' : memDecl,
                 'memacc_code' : loadMemAccCode,
                 'ea_code' : simd64EnabledCheckCode + eaCode,
             },
-            [ 'IsMicroop', 'IsMemRef', 'IsLoad' ])
-        storeIop = InstObjParams(name + 'st',
+            [ 'IsMicroop', 'IsLoad' ])
+        loadIop.snippets["memacc_code"] += zeroSveVecRegUpperPartCode % \
+            "AA64FpDest"
+        storeIop = ArmInstObjParams(name + 'st',
                 'MicroNeonStore64',
                 'MicroNeonMemOp',
             {   'mem_decl' : memDecl,
                 'memacc_code' : storeMemAccCode,
                 'ea_code' : simd64EnabledCheckCode + eaCode,
             },
-            [ 'IsMicroop', 'IsMemRef', 'IsStore' ])
+            [ 'IsMicroop', 'IsStore' ])
 
         exec_output += NeonLoadExecute64.subst(loadIop) + \
             NeonLoadInitiateAcc64.subst(loadIop) + \
@@ -262,9 +266,9 @@ let {{
                 }
             '''
 
-            iop = InstObjParams(name, Name, 'MicroNeonMixOp64',
-                                { 'code' : eCode, 'op_class' : 'No_OpClass' },
-                                ['IsMicroop'])
+            iop = ArmInstObjParams(name, Name, 'MicroNeonMixOp64',
+                    { 'code' : eCode, 'op_class' : 'No_OpClass' },
+                    ['IsMicroop'])
             header_output += MicroNeonMixDeclare64.subst(iop)
             exec_output += MicroNeonMixExecute64.subst(iop)
 
@@ -325,9 +329,9 @@ let {{
                     output[%(v)d], %(p)d, 0x2);
                 ''' % { 'v': v, 'p': p}
 
-            iop = InstObjParams(name, Name, 'MicroNeonMixOp64',
-                                { 'code' : eCode, 'op_class' : 'No_OpClass' },
-                                ['IsMicroop'])
+            iop = ArmInstObjParams(name, Name, 'MicroNeonMixOp64',
+                    { 'code' : eCode, 'op_class' : 'No_OpClass' },
+                    ['IsMicroop'])
             header_output += MicroNeonMixDeclare64.subst(iop)
             exec_output += MicroNeonMixExecute64.subst(iop)
 
@@ -394,8 +398,8 @@ let {{
                     output[%(v)d], %(p)d, 0x2);
                 ''' % { 'v' : v, 'p' : p }
 
-            iop = InstObjParams(name, Name, 'MicroNeonMixLaneOp64',
-                                { 'code' : eCode }, ['IsMicroop'])
+            iop = ArmInstObjParams(name, Name, 'MicroNeonMixLaneOp64',
+                                   { 'code' : eCode }, ['IsMicroop'])
             header_output += MicroNeonMixLaneDeclare64.subst(iop)
             exec_output += MicroNeonMixExecute64.subst(iop)
 
@@ -443,8 +447,8 @@ let {{
                     output[%(v)d], %(p)d, 0x2);
                 ''' % { 'v' : v, 'p' : p }
 
-            iop = InstObjParams(name, Name, 'MicroNeonMixLaneOp64',
-                                { 'code' : eCode }, ['IsMicroop'])
+            iop = ArmInstObjParams(name, Name, 'MicroNeonMixLaneOp64',
+                                   { 'code' : eCode }, ['IsMicroop'])
             header_output += MicroNeonMixLaneDeclare64.subst(iop)
             exec_output += MicroNeonMixExecute64.subst(iop)
 
@@ -465,19 +469,21 @@ let {{
 
 let {{
 
-    iop = InstObjParams('vldmult64', 'VldMult64', 'VldMultOp64', '', [])
+    iop = ArmInstObjParams('vldmult64', 'VldMult64', 'VldMultOp64', '', [])
     header_output += VMemMultDeclare64.subst(iop)
     decoder_output += VMemMultConstructor64.subst(iop)
 
-    iop = InstObjParams('vstmult64', 'VstMult64', 'VstMultOp64', '', [])
+    iop = ArmInstObjParams('vstmult64', 'VstMult64', 'VstMultOp64', '', [])
     header_output += VMemMultDeclare64.subst(iop)
     decoder_output += VMemMultConstructor64.subst(iop)
 
-    iop = InstObjParams('vldsingle64', 'VldSingle64', 'VldSingleOp64', '', [])
+    iop = ArmInstObjParams(
+            'vldsingle64', 'VldSingle64', 'VldSingleOp64', '', [])
     header_output += VMemSingleDeclare64.subst(iop)
     decoder_output += VMemSingleConstructor64.subst(iop)
 
-    iop = InstObjParams('vstsingle64', 'VstSingle64', 'VstSingleOp64', '', [])
+    iop = ArmInstObjParams(
+            'vstsingle64', 'VstSingle64', 'VstSingleOp64', '', [])
     header_output += VMemSingleDeclare64.subst(iop)
     decoder_output += VMemSingleConstructor64.subst(iop)
 

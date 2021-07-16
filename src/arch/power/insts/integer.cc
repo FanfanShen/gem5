@@ -24,28 +24,25 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Timothy M. Jones
  */
 
 #include "arch/power/insts/integer.hh"
 
-using namespace std;
 using namespace PowerISA;
 
-string
-IntOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+std::string
+IntOp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 {
-    stringstream ss;
+    std::stringstream ss;
     bool printDest = true;
     bool printSrcs = true;
     bool printSecondSrc = true;
 
     // Generate the correct mnemonic
-    string myMnemonic(mnemonic);
+    std::string myMnemonic(mnemonic);
 
     // Special cases
-    if (!myMnemonic.compare("or") && _srcRegIdx[0] == _srcRegIdx[1]) {
+    if (!myMnemonic.compare("or") && srcRegIdx(0) == srcRegIdx(1)) {
         myMnemonic = "mr";
         printSecondSrc = false;
     } else if (!myMnemonic.compare("mtlr") || !myMnemonic.compare("cmpi")) {
@@ -61,7 +58,7 @@ IntOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 
     // Print the first destination only
     if (_numDestRegs > 0 && printDest) {
-        printReg(ss, _destRegIdx[0]);
+        printReg(ss, destRegIdx(0));
     }
 
     // Print the (possibly) two source registers
@@ -69,10 +66,10 @@ IntOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
         if (_numDestRegs > 0 && printDest) {
             ss << ", ";
         }
-        printReg(ss, _srcRegIdx[0]);
+        printReg(ss, srcRegIdx(0));
         if (_numSrcRegs > 1 && printSecondSrc) {
           ss << ", ";
-          printReg(ss, _srcRegIdx[1]);
+          printReg(ss, srcRegIdx(1));
         }
     }
 
@@ -80,13 +77,13 @@ IntOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 
-string
-IntImmOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+std::string
+IntImmOp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 {
-    stringstream ss;
+    std::stringstream ss;
 
     // Generate the correct mnemonic
-    string myMnemonic(mnemonic);
+    std::string myMnemonic(mnemonic);
 
     // Special cases
     if (!myMnemonic.compare("addi") && _numSrcRegs == 0) {
@@ -98,7 +95,7 @@ IntImmOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 
     // Print the first destination only
     if (_numDestRegs > 0) {
-        printReg(ss, _destRegIdx[0]);
+        printReg(ss, destRegIdx(0));
     }
 
     // Print the source register
@@ -106,7 +103,7 @@ IntImmOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
         if (_numDestRegs > 0) {
             ss << ", ";
         }
-        printReg(ss, _srcRegIdx[0]);
+        printReg(ss, srcRegIdx(0));
     }
 
     // Print the immediate value last
@@ -116,16 +113,17 @@ IntImmOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 
-string
-IntShiftOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+std::string
+IntShiftOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
-    stringstream ss;
+    std::stringstream ss;
 
     ccprintf(ss, "%-10s ", mnemonic);
 
     // Print the first destination only
     if (_numDestRegs > 0) {
-        printReg(ss, _destRegIdx[0]);
+        printReg(ss, destRegIdx(0));
     }
 
     // Print the first source register
@@ -133,7 +131,7 @@ IntShiftOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
         if (_numDestRegs > 0) {
             ss << ", ";
         }
-        printReg(ss, _srcRegIdx[0]);
+        printReg(ss, srcRegIdx(0));
     }
 
     // Print the shift
@@ -143,16 +141,17 @@ IntShiftOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 }
 
 
-string
-IntRotateOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+std::string
+IntRotateOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
-    stringstream ss;
+    std::stringstream ss;
 
     ccprintf(ss, "%-10s ", mnemonic);
 
     // Print the first destination only
     if (_numDestRegs > 0) {
-        printReg(ss, _destRegIdx[0]);
+        printReg(ss, destRegIdx(0));
     }
 
     // Print the first source register
@@ -160,7 +159,7 @@ IntRotateOp::generateDisassembly(Addr pc, const SymbolTable *symtab) const
         if (_numDestRegs > 0) {
             ss << ", ";
         }
-        printReg(ss, _srcRegIdx[0]);
+        printReg(ss, srcRegIdx(0));
     }
 
     // Print the shift, mask begin and mask end

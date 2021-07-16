@@ -23,13 +23,9 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Ron Dreslinski
 
 # Splash2 Run Script
 #
-
-from __future__ import print_function
 
 import os
 import optparse
@@ -182,15 +178,15 @@ busFrequency = Frequency(options.frequency)
 if options.timing:
     cpus = [TimingSimpleCPU(cpu_id = i,
                             clock=options.frequency)
-            for i in xrange(options.numcpus)]
+            for i in range(options.numcpus)]
 elif options.detailed:
     cpus = [DerivO3CPU(cpu_id = i,
                        clock=options.frequency)
-            for i in xrange(options.numcpus)]
+            for i in range(options.numcpus)]
 else:
     cpus = [AtomicSimpleCPU(cpu_id = i,
                             clock=options.frequency)
-            for i in xrange(options.numcpus)]
+            for i in range(options.numcpus)]
 
 # ----------------------
 # Create a system, and add system wide objects
@@ -267,6 +263,8 @@ else:
 
 for cpu in cpus:
     cpu.workload = root.workload
+
+system.workload = SEWorkload.init_compatible(root.workload.executable)
 
 # ----------------------
 # Run the simulation

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited
+ * Copyright (c) 2017-2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 /**
@@ -44,6 +42,8 @@
 
 #ifndef __ARCH_ARM_TRACERS_TARMAC_RECORD_HH__
 #define __ARCH_ARM_TRACERS_TARMAC_RECORD_HH__
+
+#include <memory>
 
 #include "arch/arm/tracers/tarmac_base.hh"
 #include "base/printable.hh"
@@ -149,6 +149,12 @@ class TarmacTracerRecord : public TarmacBaseRecord
         virtual void
         updateInt(const TarmacContext& tarmCtx, RegIndex regRelIdx);
 
+        virtual void
+        updateVec(const TarmacContext& tarmCtx, RegIndex regRelIdx) {};
+
+        virtual void
+        updatePred(const TarmacContext& tarmCtx, RegIndex regRelIdx) {};
+
       public:
         /** True if register entry is valid */
         bool regValid;
@@ -178,7 +184,7 @@ class TarmacTracerRecord : public TarmacBaseRecord
 
   public:
     TarmacTracerRecord(Tick _when, ThreadContext *_thread,
-                       const StaticInstPtr _staticInst, TheISA::PCState _pc,
+                       const StaticInstPtr _staticInst, ArmISA::PCState _pc,
                        TarmacTracer& _tracer,
                        const StaticInstPtr _macroStaticInst = NULL);
 
@@ -242,7 +248,7 @@ class TarmacTracerRecord : public TarmacBaseRecord
             if (cpsr_it == queue.end()) {
                 RegId reg(MiscRegClass, ArmISA::MISCREG_CPSR);
                 queue.push_back(
-                    m5::make_unique<RegEntry>(
+                    std::make_unique<RegEntry>(
                         genRegister<RegEntry>(tarmCtx, reg))
                 );
             }

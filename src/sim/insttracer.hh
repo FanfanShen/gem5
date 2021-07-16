@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014 ARM Limited
+ * Copyright (c) 2014, 2017, 2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,14 +36,13 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Nathan Binkert
  */
 
 #ifndef __INSTRECORD_HH__
 #define __INSTRECORD_HH__
 
+#include "arch/generic/vec_pred_reg.hh"
+#include "arch/generic/vec_reg.hh"
 #include "base/types.hh"
 #include "cpu/inst_seq.hh"
 #include "cpu/static_inst.hh"
@@ -95,6 +94,9 @@ class InstRecord
     union {
         uint64_t as_int;
         double as_double;
+        ::VecRegContainer<TheISA::VecRegSizeBytes>* as_vec;
+        ::VecPredRegContainer<TheISA::VecPredRegSizeBits,
+                              TheISA::VecPredRegHasPackedRepr>* as_pred;
     } data;
 
     /** @defgroup fetch_seq
@@ -118,7 +120,9 @@ class InstRecord
         DataInt16 = 2,
         DataInt32 = 4,
         DataInt64 = 8,
-        DataDouble = 3
+        DataDouble = 3,
+        DataVec = 5,
+        DataVecPred = 6
     } data_status;
 
     /** @ingroup memory
@@ -139,6 +143,12 @@ class InstRecord
      */
     bool predicate;
 
+    /**
+     * Did the execution of this instruction fault? (requires ExecFaulting
+     * to be enabled)
+     */
+    bool faulting;
+
   public:
     InstRecord(Tick _when, ThreadContext *_thread,
                const StaticInstPtr _staticInst,
@@ -147,10 +157,20 @@ class InstRecord
         : when(_when), thread(_thread), staticInst(_staticInst), pc(_pc),
         macroStaticInst(_macroStaticInst), addr(0), size(0), flags(0),
         fetch_seq(0), cp_seq(0), data_status(DataInvalid), mem_valid(false),
-        fetch_seq_valid(false), cp_seq_valid(false), predicate(true)
+        fetch_seq_valid(false), cp_seq_valid(false), predicate(true),
+        faulting(false)
     { }
 
-    virtual ~InstRecord() { }
+    virtual ~InstRecord()
+    {
+        if (data_status == DataVec) {
+            assert(data.as_vec);
+            delete data.as_vec;
+        } else if (data_status == DataVecPred) {
+            assert(data.as_pred);
+            delete data.as_pred;
+        }
+    }
 
     void setWhen(Tick new_when) { when = new_when; }
     void setMem(Addr a, Addr s, unsigned f)
@@ -181,6 +201,22 @@ class InstRecord
 
     void setData(double d) { data.as_double = d; data_status = DataDouble; }
 
+    void
+    setData(::VecRegContainer<TheISA::VecRegSizeBytes>& d)
+    {
+        data.as_vec = new ::VecRegContainer<TheISA::VecRegSizeBytes>(d);
+        data_status = DataVec;
+    }
+
+    void
+    setData(::VecPredRegContainer<TheISA::VecPredRegSizeBits,
+                                  TheISA::VecPredRegHasPackedRepr>& d)
+    {
+        data.as_pred = new ::VecPredRegContainer<
+            TheISA::VecPredRegSizeBits, TheISA::VecPredRegHasPackedRepr>(d);
+        data_status = DataVecPred;
+    }
+
     void setFetchSeq(InstSeqNum seq)
     { fetch_seq = seq; fetch_seq_valid = true; }
 
@@ -188,6 +224,8 @@ class InstRecord
     { cp_seq = seq; cp_seq_valid = true; }
 
     void setPredicate(bool val) { predicate = val; }
+
+    void setFaulting(bool val) { faulting = val; }
 
     virtual void dump() = 0;
 
@@ -212,12 +250,14 @@ class InstRecord
 
     InstSeqNum getCpSeq() const { return cp_seq; }
     bool getCpSeqValid() const { return cp_seq_valid; }
+
+    bool getFaulting() const { return faulting; }
 };
 
 class InstTracer : public SimObject
 {
   public:
-    InstTracer(const Params *p) : SimObject(p)
+    InstTracer(const Params &p) : SimObject(p)
     {}
 
     virtual ~InstTracer()

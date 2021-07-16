@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 /**
@@ -47,6 +45,9 @@
 #ifndef __CPU_MINOR_EXECUTE_HH__
 #define __CPU_MINOR_EXECUTE_HH__
 
+#include <vector>
+
+#include "base/types.hh"
 #include "cpu/minor/buffers.hh"
 #include "cpu/minor/cpu.hh"
 #include "cpu/minor/func_unit.hh"
@@ -316,7 +317,7 @@ class Execute : public Named
   public:
     Execute(const std::string &name_,
         MinorCPU &cpu_,
-        MinorCPUParams &params,
+        const MinorCPUParams &params,
         Latch<ForwardInstData>::Output inp_,
         Latch<BranchData>::Input out_);
 

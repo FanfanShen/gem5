@@ -33,9 +33,7 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Matt Horsnell
-  */
+ */
 
 /**
  * @file This file describes the base components used for the probe system.
@@ -71,7 +69,7 @@
 /** Forward declare the ProbeManager. */
 class ProbeManager;
 class ProbeListener;
-class ProbeListenerObjectParams;
+struct ProbeListenerObjectParams;
 
 /**
  * Name space containing shared probe point declarations.
@@ -104,7 +102,7 @@ class ProbeListenerObject : public SimObject
     std::vector<ProbeListener *> listeners;
 
   public:
-    ProbeListenerObject(const ProbeListenerObjectParams *params);
+    ProbeListenerObject(const ProbeListenerObjectParams &params);
     virtual ~ProbeListenerObject();
     ProbeManager* getProbeManager() { return manager; }
 };
@@ -121,6 +119,10 @@ class ProbeListener
   public:
     ProbeListener(ProbeManager *manager, const std::string &name);
     virtual ~ProbeListener();
+    ProbeListener(const ProbeListener& other) = delete;
+    ProbeListener& operator=(const ProbeListener& other) = delete;
+    ProbeListener(ProbeListener&& other) noexcept = delete;
+    ProbeListener& operator=(ProbeListener&& other) noexcept = delete;
 
   protected:
     ProbeManager *const manager;
@@ -153,7 +155,7 @@ class ProbeManager
 {
   private:
     /** Required for sensible debug messages.*/
-    const M5_CLASS_VAR_USED SimObject *object;
+    M5_CLASS_VAR_USED const SimObject *object;
     /** Vector for name look-up. */
     std::vector<ProbePoint *> points;
 
@@ -258,6 +260,15 @@ class ProbePointArg : public ProbePoint
         : ProbePoint(manager, name)
     {
     }
+
+    /**
+     * Informs whether any listeners are attached to this probe. This can
+     * be used to avoid performing costly tasks needed by the probe when
+     * nobody is listening.
+     *
+     * @return Whether this probe has any listener.
+     */
+    bool hasListeners() const { return listeners.size() > 0; }
 
     /**
      * @brief adds a ProbeListener to this ProbePoints notify list.

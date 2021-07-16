@@ -24,17 +24,18 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 #ifndef __BASE_STATS_INFO_HH__
 #define __BASE_STATS_INFO_HH__
 
-#include "base/stats/types.hh"
 #include "base/flags.hh"
+#include "base/stats/types.hh"
+#include "base/stats/units.hh"
 
 namespace Stats {
+
+class Group;
 
 typedef uint16_t FlagsType;
 typedef ::Flags<FlagsType> Flags;
@@ -73,6 +74,8 @@ class Info
     std::string name;
     /** The separator string used for vectors, dist, etc. */
     static std::string separatorString;
+    /** The unit of the stat. */
+    const Units::Base* unit = UNIT_UNSPECIFIED;
     /** The description of the stat. */
     std::string desc;
     /** The formatting flags. */
@@ -97,6 +100,7 @@ class Info
 
     /** Set the name of this statistic */
     void setName(const std::string &name);
+    void setName(const Group *parent, const std::string &name);
     void setSeparator(std::string _sep) { separatorString = _sep;}
 
     /**
@@ -253,6 +257,9 @@ class SparseHistInfo : public Info
     /** Local storage for the entry values, used for printing. */
     SparseHistData data;
 };
+
+typedef std::map<std::string, Info *> NameMapType;
+NameMapType &nameMap();
 
 } // namespace Stats
 

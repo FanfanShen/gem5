@@ -23,14 +23,12 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Tushar Krishna
 
-from MemObject import MemObject
+from m5.objects.ClockedObject import ClockedObject
 from m5.params import *
 from m5.proxy import *
 
-class GarnetSyntheticTraffic(MemObject):
+class GarnetSyntheticTraffic(ClockedObject):
     type = 'GarnetSyntheticTraffic'
     cxx_header = \
         "cpu/testers/garnet_synthetic_traffic/GarnetSyntheticTraffic.hh"
@@ -53,5 +51,5 @@ class GarnetSyntheticTraffic(MemObject):
                               after decimal point")
     response_limit = Param.Cycles(5000000, "Cycles before exiting \
                                             due to lack of progress")
-    test = MasterPort("Port to the memory system to test")
+    test = RequestPort("Port to the memory system to test")
     system = Param.System(Parent.any, "System we belong to")

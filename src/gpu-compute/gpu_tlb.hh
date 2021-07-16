@@ -29,8 +29,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Lisa Hsu
  */
 
 #ifndef __GPU_TLB_HH__
@@ -49,11 +47,12 @@
 #include "base/callback.hh"
 #include "base/logging.hh"
 #include "base/statistics.hh"
+#include "base/stats/group.hh"
 #include "gpu-compute/compute_unit.hh"
-#include "mem/mem_object.hh"
 #include "mem/port.hh"
 #include "mem/request.hh"
 #include "params/X86GPUTLB.hh"
+#include "sim/clocked_object.hh"
 #include "sim/sim_object.hh"
 
 class BaseTLB;
@@ -62,7 +61,7 @@ class ThreadContext;
 
 namespace X86ISA
 {
-    class GpuTLB : public MemObject
+    class GpuTLB : public ClockedObject
     {
       protected:
         friend class Walker;
@@ -71,28 +70,9 @@ namespace X86ISA
 
         uint32_t configAddress;
 
-        // TLB clock: will inherit clock from shader's clock period in terms
-        // of nuber of ticks of curTime (aka global simulation clock)
-        // The assignment of TLB clock from shader clock is done in the python
-        // config files.
-        int clock;
-
       public:
-        // clock related functions ; maps to-and-from Simulation ticks and
-        // object clocks.
-        Tick frequency() const { return SimClock::Frequency / clock; }
-
-        Tick
-        ticks(int numCycles) const
-        {
-            return (Tick)clock * numCycles;
-        }
-
-        Tick curCycle() const { return curTick() / clock; }
-        Tick tickToCycles(Tick val) const { return val / clock;}
-
         typedef X86GPUTLBParams Params;
-        GpuTLB(const Params *p);
+        GpuTLB(const Params &p);
         ~GpuTLB();
 
         typedef enum BaseTLB::Mode Mode;
@@ -177,7 +157,8 @@ namespace X86ISA
          */
         std::vector<EntryList> entryList;
 
-        Fault translateInt(const RequestPtr &req, ThreadContext *tc);
+        Fault translateInt(bool read, const RequestPtr &req,
+                           ThreadContext *tc);
 
         Fault translate(const RequestPtr &req, ThreadContext *tc,
                 Translation *translation, Mode mode, bool &delayedResponse,
@@ -189,35 +170,6 @@ namespace X86ISA
         int missLatency1;
         int missLatency2;
 
-        // local_stats are as seen from the TLB
-        // without taking into account coalescing
-        Stats::Scalar localNumTLBAccesses;
-        Stats::Scalar localNumTLBHits;
-        Stats::Scalar localNumTLBMisses;
-        Stats::Formula localTLBMissRate;
-
-        // global_stats are as seen from the
-        // CU's perspective taking into account
-        // all coalesced requests.
-        Stats::Scalar globalNumTLBAccesses;
-        Stats::Scalar globalNumTLBHits;
-        Stats::Scalar globalNumTLBMisses;
-        Stats::Formula globalTLBMissRate;
-
-        // from the CU perspective (global)
-        Stats::Scalar accessCycles;
-        // from the CU perspective (global)
-        Stats::Scalar pageTableCycles;
-        Stats::Scalar numUniquePages;
-        // from the perspective of this TLB
-        Stats::Scalar localCycles;
-        // from the perspective of this TLB
-        Stats::Formula localLatency;
-        // I take the avg. per page and then
-        // the avg. over all pages.
-        Stats::Scalar avgReuseDistance;
-
-        void regStats();
         void updatePageFootprint(Addr virt_page_addr);
         void printAccessPattern();
 
@@ -235,8 +187,8 @@ namespace X86ISA
         TlbEntry *insert(Addr vpn, TlbEntry &entry);
 
         // Checkpointing
-        virtual void serialize(CheckpointOut& cp) const;
-        virtual void unserialize(CheckpointIn& cp);
+        virtual void serialize(CheckpointOut& cp) const override;
+        virtual void unserialize(CheckpointIn& cp) override;
         void issueTranslation();
         enum tlbOutcome {TLB_HIT, TLB_MISS, PAGE_WALK, MISS_RETURN};
         bool tlbLookup(const RequestPtr &req,
@@ -256,12 +208,12 @@ namespace X86ISA
         void issueTLBLookup(PacketPtr pkt);
 
         // CpuSidePort is the TLB Port closer to the CPU/CU side
-        class CpuSidePort : public SlavePort
+        class CpuSidePort : public ResponsePort
         {
           public:
             CpuSidePort(const std::string &_name, GpuTLB * gpu_TLB,
                         PortID _index)
-                : SlavePort(_name, gpu_TLB), tlb(gpu_TLB), index(_index) { }
+                : ResponsePort(_name, gpu_TLB), tlb(gpu_TLB), index(_index) { }
 
           protected:
             GpuTLB *tlb;
@@ -283,12 +235,12 @@ namespace X86ISA
          * Future action item: if we ever do real page walks, then this port
          * should be connected to a RubyPort.
          */
-        class MemSidePort : public MasterPort
+        class MemSidePort : public RequestPort
         {
           public:
             MemSidePort(const std::string &_name, GpuTLB * gpu_TLB,
                         PortID _index)
-                : MasterPort(_name, gpu_TLB), tlb(gpu_TLB), index(_index) { }
+                : RequestPort(_name, gpu_TLB), tlb(gpu_TLB), index(_index) { }
 
             std::deque<PacketPtr> retries;
 
@@ -308,11 +260,8 @@ namespace X86ISA
         // TLB ports on the memory side
         std::vector<MemSidePort*> memSidePort;
 
-        BaseMasterPort &getMasterPort(const std::string &if_name,
-                                      PortID idx=InvalidPortID);
-
-        BaseSlavePort &getSlavePort(const std::string &if_name,
-                                    PortID idx=InvalidPortID);
+        Port &getPort(const std::string &if_name,
+                      PortID idx=InvalidPortID) override;
 
         /**
          * TLB TranslationState: this currently is a somewhat bastardization of
@@ -348,7 +297,7 @@ namespace X86ISA
             // When was the req for this translation issued
             uint64_t issueTime;
             // Remember where this came from
-            std::vector<SlavePort*>ports;
+            std::vector<ResponsePort*>ports;
 
             // keep track of #uncoalesced reqs per packet per TLB level;
             // reqCnt per level >= reqCnt higher level
@@ -449,6 +398,40 @@ namespace X86ISA
         void exitCallback();
 
         EventFunctionWrapper exitEvent;
+
+      protected:
+        struct GpuTLBStats : public Stats::Group
+        {
+            GpuTLBStats(Stats::Group *parent);
+
+            // local_stats are as seen from the TLB
+            // without taking into account coalescing
+            Stats::Scalar localNumTLBAccesses;
+            Stats::Scalar localNumTLBHits;
+            Stats::Scalar localNumTLBMisses;
+            Stats::Formula localTLBMissRate;
+
+            // global_stats are as seen from the
+            // CU's perspective taking into account
+            // all coalesced requests.
+            Stats::Scalar globalNumTLBAccesses;
+            Stats::Scalar globalNumTLBHits;
+            Stats::Scalar globalNumTLBMisses;
+            Stats::Formula globalTLBMissRate;
+
+            // from the CU perspective (global)
+            Stats::Scalar accessCycles;
+            // from the CU perspective (global)
+            Stats::Scalar pageTableCycles;
+            Stats::Scalar numUniquePages;
+            // from the perspective of this TLB
+            Stats::Scalar localCycles;
+            // from the perspective of this TLB
+            Stats::Formula localLatency;
+            // I take the avg. per page and then
+            // the avg. over all pages.
+            Stats::Scalar avgReuseDistance;
+        } stats;
     };
 }
 

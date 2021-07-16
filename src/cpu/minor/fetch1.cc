@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 #include "cpu/minor/fetch1.hh"
@@ -44,6 +42,8 @@
 #include <sstream>
 
 #include "base/cast.hh"
+#include "base/logging.hh"
+#include "base/trace.hh"
 #include "cpu/minor/pipeline.hh"
 #include "debug/Drain.hh"
 #include "debug/Fetch.hh"
@@ -54,7 +54,7 @@ namespace Minor
 
 Fetch1::Fetch1(const std::string &name_,
     MinorCPU &cpu_,
-    MinorCPUParams &params,
+    const MinorCPUParams &params,
     Latch<BranchData>::Output inp_,
     Latch<ForwardLineData>::Input out_,
     Latch<BranchData>::Output prediction_,
@@ -169,8 +169,8 @@ Fetch1::fetchLine(ThreadID tid)
         request_id, aligned_pc, thread.pc, line_offset, request_size);
 
     request->request->setContext(cpu.threads[tid]->getTC()->contextId());
-    request->request->setVirt(0 /* asid */,
-        aligned_pc, request_size, Request::INST_FETCH, cpu.instMasterId(),
+    request->request->setVirt(
+        aligned_pc, request_size, Request::INST_FETCH, cpu.instRequestorId(),
         /* I've no idea why we need the PC, but give it */
         thread.pc.instAddr());
 
@@ -186,7 +186,7 @@ Fetch1::fetchLine(ThreadID tid)
     /* Submit the translation request.  The response will come
      *  through finish/markDelayed on this request as it bears
      *  the Translation interface */
-    cpu.threads[request->id.threadId]->itb->translateTiming(
+    cpu.threads[request->id.threadId]->mmu->translateTiming(
         request->request,
         cpu.getContext(request->id.threadId),
         request, BaseTLB::Execute);
@@ -196,15 +196,7 @@ Fetch1::fetchLine(ThreadID tid)
     /* Step the PC for the next line onto the line aligned next address.
      * Note that as instructions can span lines, this PC is only a
      * reliable 'new' PC if the next line has a new stream sequence number. */
-#if THE_ISA == ALPHA_ISA
-    /* Restore the low bits of the PC used as address space flags */
-    Addr pc_low_bits = thread.pc.instAddr() &
-        ((Addr) (1 << sizeof(TheISA::MachInst)) - 1);
-
-    thread.pc.set(aligned_pc + request_size + pc_low_bits);
-#else
     thread.pc.set(aligned_pc + request_size);
-#endif
 }
 
 std::ostream &
@@ -398,7 +390,7 @@ void
 Fetch1::minorTraceResponseLine(const std::string &name,
     Fetch1::FetchRequestPtr response) const
 {
-    const RequestPtr &request M5_VAR_USED = response->request;
+    M5_VAR_USED const RequestPtr &request = response->request;
 
     if (response->packet && response->packet->isError()) {
         MINORLINE(this, "id=F;%s vaddr=0x%x fault=\"error packet\"\n",

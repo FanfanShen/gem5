@@ -1,4 +1,4 @@
-# Copyright (c) 2016 ARM Limited
+# Copyright (c) 2016,2019 ARM Limited
 # All rights reserved.
 #
 # The license below extends only to copyright in the software and shall
@@ -39,6 +39,7 @@ from m5.ext.pyfdt import pyfdt
 import re
 import os
 from m5.SimObject import SimObject
+from m5.util import fatal
 
 class FdtProperty(pyfdt.FdtProperty):
     """Create a property without values."""
@@ -51,7 +52,7 @@ class FdtPropertyWords(pyfdt.FdtPropertyWords):
             words = [words]
         # Make sure all values are ints (use automatic base detection if the
         # type is str)
-        words = [long(w, base=0) if type(w) == str else long(w) for w in words]
+        words = [int(w, base=0) if type(w) == str else int(w) for w in words]
         super(FdtPropertyWords, self).__init__(name, words)
 
 class FdtPropertyStrings(pyfdt.FdtPropertyStrings):
@@ -83,13 +84,14 @@ class FdtState(object):
     phandle_counter = 0
     phandles = dict()
 
-    def __init__(self, addr_cells, size_cells, cpu_cells):
+    def __init__(self, **kwargs):
         """Instantiate values of this state. The state can only be initialized
         once."""
 
-        self.addr_cells = addr_cells
-        self.size_cells = size_cells
-        self.cpu_cells = cpu_cells
+        self.addr_cells = kwargs.pop('addr_cells', 0)
+        self.size_cells = kwargs.pop('size_cells', 0)
+        self.cpu_cells = kwargs.pop('cpu_cells', 0)
+        self.interrupt_cells = kwargs.pop('interrupt_cells', 0)
 
     def phandle(self, obj):
         """Return a unique phandle number for a key. The key can be a SimObject
@@ -116,7 +118,7 @@ class FdtState(object):
     def int_to_cells(self, value, cells):
         """Helper function for: generates a list of 32 bit cells from an int,
         used to split up addresses in appropriate 32 bit chunks."""
-        value = long(value)
+        value = int(value)
 
         if (value >> (32 * cells)) != 0:
             fatal("Value %d doesn't fit in %d cells" % (value, cells))
@@ -138,6 +140,11 @@ class FdtState(object):
         state."""
         return self.int_to_cells(size, self.size_cells)
 
+    def interruptCells(self, interrupt):
+        """Format an integer type according to the interrupt_cells value
+        of this state."""
+        return self.int_to_cells(interrupt, self.interrupt_cells)
+
     def addrCellsProperty(self):
         """Return an #address-cells property with the value of this state."""
         return FdtPropertyWords("#address-cells", self.addr_cells)
@@ -150,6 +157,12 @@ class FdtState(object):
         """Return an #address-cells property for cpu nodes with the value
         of this state."""
         return FdtPropertyWords("#address-cells", self.cpu_cells)
+
+    def interruptCellsProperty(self):
+        """Return an #interrupt-cells property for cpu nodes with the value
+        of this state."""
+        return FdtPropertyWords("#interrupt-cells", self.interrupt_cells)
+
 
 class FdtNop(pyfdt.FdtNop):
     """Create an empty node."""

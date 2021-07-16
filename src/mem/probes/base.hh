@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #ifndef __MEM_PROBES_BASE_HH__
@@ -63,7 +61,7 @@ struct BaseMemProbeParams;
 class BaseMemProbe : public SimObject
 {
   public:
-    BaseMemProbe(BaseMemProbeParams *params);
+    BaseMemProbe(const BaseMemProbeParams &params);
 
     void regProbeListeners() override;
 

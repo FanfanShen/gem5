@@ -24,14 +24,13 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/sparc/isa.hh"
 
 #include "arch/sparc/asi.hh"
 #include "arch/sparc/decoder.hh"
+#include "arch/sparc/interrupts.hh"
 #include "base/bitfield.hh"
 #include "base/trace.hh"
 #include "cpu/base.hh"
@@ -60,20 +59,9 @@ buildPstateMask()
 
 static const PSTATE PstateMask = buildPstateMask();
 
-ISA::ISA(Params *p)
-    : SimObject(p)
+ISA::ISA(const Params &p) : BaseISA(p)
 {
-    tickCompare = NULL;
-    sTickCompare = NULL;
-    hSTickCompare = NULL;
-
     clear();
-}
-
-const SparcISAParams *
-ISA::params() const
-{
-    return dynamic_cast<const Params *>(_params);
 }
 
 void
@@ -173,7 +161,7 @@ ISA::clear()
         panic("Tick comparison event active when clearing the ISA object.\n");
 }
 
-MiscReg
+RegVal
 ISA::readMiscRegNoEffect(int miscReg) const
 {
 
@@ -248,7 +236,7 @@ ISA::readMiscRegNoEffect(int miscReg) const
       case MISCREG_TBA:
         return tba;
       case MISCREG_PSTATE:
-        return (MiscReg)pstate;
+        return (RegVal)pstate;
       case MISCREG_TL:
         return tl;
       case MISCREG_PIL:
@@ -271,7 +259,7 @@ ISA::readMiscRegNoEffect(int miscReg) const
 
         /** Hyper privileged registers */
       case MISCREG_HPSTATE:
-        return (MiscReg)hpstate;
+        return (RegVal)hpstate;
       case MISCREG_HTSTATE:
         return htstate[tl-1];
       case MISCREG_HINTP:
@@ -334,8 +322,8 @@ ISA::readMiscRegNoEffect(int miscReg) const
     }
 }
 
-MiscReg
-ISA::readMiscReg(int miscReg, ThreadContext * tc)
+RegVal
+ISA::readMiscReg(int miscReg)
 {
     switch (miscReg) {
         // tick and stick are aliased to each other in niagra
@@ -377,13 +365,13 @@ ISA::readMiscReg(int miscReg, ThreadContext * tc)
       case MISCREG_QUEUE_NRES_ERROR_HEAD:
       case MISCREG_QUEUE_NRES_ERROR_TAIL:
       case MISCREG_HPSTATE:
-        return readFSReg(miscReg, tc);
+        return readFSReg(miscReg);
     }
     return readMiscRegNoEffect(miscReg);
 }
 
 void
-ISA::setMiscRegNoEffect(int miscReg, MiscReg val)
+ISA::setMiscRegNoEffect(int miscReg, RegVal val)
 {
     switch (miscReg) {
 //      case MISCREG_Y:
@@ -564,9 +552,9 @@ ISA::setMiscRegNoEffect(int miscReg, MiscReg val)
 }
 
 void
-ISA::setMiscReg(int miscReg, MiscReg val, ThreadContext * tc)
+ISA::setMiscReg(int miscReg, RegVal val)
 {
-    MiscReg new_val = val;
+    RegVal new_val = val;
 
     switch (miscReg) {
       case MISCREG_ASI:
@@ -633,7 +621,7 @@ ISA::setMiscReg(int miscReg, MiscReg val, ThreadContext * tc)
       case MISCREG_QUEUE_NRES_ERROR_HEAD:
       case MISCREG_QUEUE_NRES_ERROR_TAIL:
       case MISCREG_HPSTATE:
-        setFSReg(miscReg, val, tc);
+        setFSReg(miscReg, val);
         return;
     }
     setMiscRegNoEffect(miscReg, new_val);
@@ -680,39 +668,18 @@ ISA::serialize(CheckpointOut &cp) const
     SERIALIZE_SCALAR(res_error_tail);
     SERIALIZE_SCALAR(nres_error_head);
     SERIALIZE_SCALAR(nres_error_tail);
+
     Tick tick_cmp = 0, stick_cmp = 0, hstick_cmp = 0;
-    ThreadContext *tc = NULL;
-    BaseCPU *cpu = NULL;
-    int tc_num = 0;
-    bool tick_intr_sched = true;
+    if (tickCompare && tickCompare->scheduled())
+        tick_cmp = tickCompare->when();
+    if (sTickCompare && sTickCompare->scheduled())
+        stick_cmp = sTickCompare->when();
+    if (hSTickCompare && hSTickCompare->scheduled())
+        hstick_cmp = hSTickCompare->when();
 
-    if (tickCompare)
-        tc = tickCompare->getTC();
-    else if (sTickCompare)
-        tc = sTickCompare->getTC();
-    else if (hSTickCompare)
-        tc = hSTickCompare->getTC();
-    else
-        tick_intr_sched = false;
-
-    SERIALIZE_SCALAR(tick_intr_sched);
-
-    if (tc) {
-        cpu = tc->getCpuPtr();
-        tc_num = cpu->findContext(tc);
-        if (tickCompare && tickCompare->scheduled())
-            tick_cmp = tickCompare->when();
-        if (sTickCompare && sTickCompare->scheduled())
-            stick_cmp = sTickCompare->when();
-        if (hSTickCompare && hSTickCompare->scheduled())
-            hstick_cmp = hSTickCompare->when();
-
-        SERIALIZE_OBJPTR(cpu);
-        SERIALIZE_SCALAR(tc_num);
-        SERIALIZE_SCALAR(tick_cmp);
-        SERIALIZE_SCALAR(stick_cmp);
-        SERIALIZE_SCALAR(hstick_cmp);
-    }
+    SERIALIZE_SCALAR(tick_cmp);
+    SERIALIZE_SCALAR(stick_cmp);
+    SERIALIZE_SCALAR(hstick_cmp);
 }
 
 void
@@ -767,41 +734,22 @@ ISA::unserialize(CheckpointIn &cp)
     UNSERIALIZE_SCALAR(nres_error_tail);
 
     Tick tick_cmp = 0, stick_cmp = 0, hstick_cmp = 0;
-    ThreadContext *tc = NULL;
-    BaseCPU *cpu = NULL;
-    int tc_num;
-    bool tick_intr_sched;
-    UNSERIALIZE_SCALAR(tick_intr_sched);
-    if (tick_intr_sched) {
-        UNSERIALIZE_OBJPTR(cpu);
-        if (cpu) {
-            UNSERIALIZE_SCALAR(tc_num);
-            UNSERIALIZE_SCALAR(tick_cmp);
-            UNSERIALIZE_SCALAR(stick_cmp);
-            UNSERIALIZE_SCALAR(hstick_cmp);
-            tc = cpu->getContext(tc_num);
+    UNSERIALIZE_SCALAR(tick_cmp);
+    UNSERIALIZE_SCALAR(stick_cmp);
+    UNSERIALIZE_SCALAR(hstick_cmp);
 
-            if (tick_cmp) {
-                tickCompare = new TickCompareEvent(this, tc);
-                schedule(tickCompare, tick_cmp);
-            }
-            if (stick_cmp)  {
-                sTickCompare = new STickCompareEvent(this, tc);
-                schedule(sTickCompare, stick_cmp);
-            }
-            if (hstick_cmp)  {
-                hSTickCompare = new HSTickCompareEvent(this, tc);
-                schedule(hSTickCompare, hstick_cmp);
-            }
-        }
+    if (tick_cmp) {
+        tickCompare = new TickCompareEvent(this);
+        schedule(tickCompare, tick_cmp);
     }
-
+    if (stick_cmp)  {
+        sTickCompare = new STickCompareEvent(this);
+        schedule(sTickCompare, stick_cmp);
+    }
+    if (hstick_cmp)  {
+        hSTickCompare = new HSTickCompareEvent(this);
+        schedule(hSTickCompare, hstick_cmp);
+    }
 }
 
-}
-
-SparcISA::ISA *
-SparcISAParams::create()
-{
-    return new SparcISA::ISA(this);
 }

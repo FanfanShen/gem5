@@ -29,8 +29,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: John Kalamatianos
  */
 
 #include "gpu-compute/simple_pool_manager.hh"
@@ -66,8 +64,6 @@ SimplePoolManager::printRegion()
 bool
 SimplePoolManager::canAllocate(uint32_t numRegions, uint32_t size)
 {
-    assert(numRegions * minAllocatedElements(size) <= poolSize());
-
     return _reservedGroups == 0;
 }
 

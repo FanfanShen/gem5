@@ -37,11 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Steve Reinhardt
- *          Ali Saidi
- *          Brandon Potter
  */
 
 #include "sim/process.hh"
@@ -50,6 +45,7 @@
 #include <unistd.h>
 
 #include <array>
+#include <climits>
 #include <csignal>
 #include <map>
 #include <string>
@@ -67,57 +63,71 @@
 #include "sim/emul_driver.hh"
 #include "sim/fd_array.hh"
 #include "sim/fd_entry.hh"
+#include "sim/redirect_path.hh"
 #include "sim/syscall_desc.hh"
 #include "sim/system.hh"
 
-#if THE_ISA == ALPHA_ISA
-#include "arch/alpha/linux/process.hh"
+namespace
+{
 
-#elif THE_ISA == SPARC_ISA
-#include "arch/sparc/linux/process.hh"
-#include "arch/sparc/solaris/process.hh"
+typedef std::vector<Process::Loader *> LoaderList;
 
-#elif THE_ISA == MIPS_ISA
-#include "arch/mips/linux/process.hh"
+LoaderList &
+process_loaders()
+{
+    static LoaderList loaders;
+    return loaders;
+}
 
-#elif THE_ISA == ARM_ISA
-#include "arch/arm/freebsd/process.hh"
-#include "arch/arm/linux/process.hh"
+} // anonymous namespace
 
-#elif THE_ISA == X86_ISA
-#include "arch/x86/linux/process.hh"
+Process::Loader::Loader()
+{
+    process_loaders().emplace_back(this);
+}
 
-#elif THE_ISA == POWER_ISA
-#include "arch/power/linux/process.hh"
+Process *
+Process::tryLoaders(const ProcessParams &params,
+                    ::Loader::ObjectFile *obj_file)
+{
+    for (auto &loader: process_loaders()) {
+        Process *p = loader->load(params, obj_file);
+        if (p)
+            return p;
+    }
 
-#elif THE_ISA == RISCV_ISA
-#include "arch/riscv/linux/process.hh"
+    return nullptr;
+}
 
-#else
-#error "THE_ISA not set"
-#endif
+static std::string
+normalize(const std::string& directory)
+{
+    if (directory.back() != '/')
+        return directory + '/';
+    return directory;
+}
 
-
-using namespace std;
-using namespace TheISA;
-
-Process::Process(ProcessParams *params, EmulationPageTable *pTable,
-                 ObjectFile *obj_file)
-    : SimObject(params), system(params->system),
-      useArchPT(params->useArchPT),
-      kvmInSE(params->kvmInSE),
+Process::Process(const ProcessParams &params, EmulationPageTable *pTable,
+                 ::Loader::ObjectFile *obj_file)
+    : SimObject(params), system(params.system),
+      useArchPT(params.useArchPT),
+      kvmInSE(params.kvmInSE),
+      useForClone(false),
       pTable(pTable),
-      initVirtMem(system->getSystemPort(), this,
-                  SETranslatingPortProxy::Always),
       objFile(obj_file),
-      argv(params->cmd), envp(params->env), cwd(params->cwd),
-      executable(params->executable),
-      _uid(params->uid), _euid(params->euid),
-      _gid(params->gid), _egid(params->egid),
-      _pid(params->pid), _ppid(params->ppid),
-      _pgid(params->pgid), drivers(params->drivers),
-      fds(make_shared<FDArray>(params->input, params->output, params->errout)),
-      childClearTID(0)
+      argv(params.cmd), envp(params.env),
+      executable(params.executable == "" ? params.cmd[0] : params.executable),
+      tgtCwd(normalize(params.cwd)),
+      hostCwd(checkPathRedirect(tgtCwd)),
+      release(params.release),
+      _uid(params.uid), _euid(params.euid),
+      _gid(params.gid), _egid(params.egid),
+      _pid(params.pid), _ppid(params.ppid),
+      _pgid(params.pgid), drivers(params.drivers),
+      fds(std::make_shared<FDArray>(
+                  params.input, params.output, params.errout)),
+      childClearTID(0),
+      ADD_STAT(numSyscalls, UNIT_COUNT, "Number of system calls")
 {
     if (_pid >= System::maxPID)
         fatal("_pid is too large: %d", _pid);
@@ -138,25 +148,20 @@ Process::Process(ProcessParams *params, EmulationPageTable *pTable,
      * with a new, equivalent value. If CLONE_THREAD is specified, patch
      * the tgid value with the old process' value.
      */
-    _tgid = params->pid;
+    _tgid = params.pid;
 
     exitGroup = new bool();
     sigchld = new bool();
 
-    if (!debugSymbolTable) {
-        debugSymbolTable = new SymbolTable();
-        if (!objFile->loadGlobalSymbols(debugSymbolTable) ||
-            !objFile->loadLocalSymbols(debugSymbolTable) ||
-            !objFile->loadWeakSymbols(debugSymbolTable)) {
-            delete debugSymbolTable;
-            debugSymbolTable = nullptr;
-        }
-    }
+    image = objFile->buildImage();
+
+    if (::Loader::debugSymbolTable.empty())
+        ::Loader::debugSymbolTable = objFile->symtab();
 }
 
 void
 Process::clone(ThreadContext *otc, ThreadContext *ntc,
-               Process *np, TheISA::IntReg flags)
+               Process *np, RegVal flags)
 {
 #ifndef CLONE_VM
 #define CLONE_VM 0
@@ -175,7 +180,6 @@ Process::clone(ThreadContext *otc, ThreadContext *ntc,
          */
         delete np->pTable;
         np->pTable = pTable;
-        ntc->getMemProxy().setPageTable(np->pTable);
 
         np->memState = memState;
     } else {
@@ -183,7 +187,7 @@ Process::clone(ThreadContext *otc, ThreadContext *ntc,
          * Duplicate the process memory address space. The state needs to be
          * copied over (rather than using pointers to share everything).
          */
-        typedef std::vector<pair<Addr,Addr>> MapVec;
+        typedef std::vector<std::pair<Addr,Addr>> MapVec;
         MapVec mappings;
         pTable->getMappings(&mappings);
 
@@ -211,8 +215,8 @@ Process::clone(ThreadContext *otc, ThreadContext *ntc,
          * host file descriptors are also dup'd so that the flags for the
          * host file descriptor is independent of the other process.
          */
+        std::shared_ptr<FDArray> nfds = np->fds;
         for (int tgt_fd = 0; tgt_fd < fds->getSize(); tgt_fd++) {
-            std::shared_ptr<FDArray> nfds = np->fds;
             std::shared_ptr<FDEntry> this_fde = (*fds)[tgt_fd];
             if (!this_fde) {
                 nfds->setFDEntry(tgt_fd, nullptr);
@@ -247,29 +251,6 @@ Process::clone(ThreadContext *otc, ThreadContext *ntc,
 }
 
 void
-Process::regStats()
-{
-    SimObject::regStats();
-
-    using namespace Stats;
-
-    numSyscalls
-        .name(name() + ".numSyscalls")
-        .desc("Number of system calls")
-        ;
-}
-
-ThreadContext *
-Process::findFreeContext()
-{
-    for (auto &it : system->threadContexts) {
-        if (ThreadContext::Halted == it->status())
-            return it;
-    }
-    return nullptr;
-}
-
-void
 Process::revokeThreadContext(int context_id)
 {
     std::vector<ContextID>::iterator it;
@@ -283,18 +264,35 @@ Process::revokeThreadContext(int context_id)
 }
 
 void
+Process::init()
+{
+    // Patch the ld_bias for dynamic executables.
+    updateBias();
+
+    if (objFile->getInterpreter())
+        interpImage = objFile->getInterpreter()->buildImage();
+}
+
+void
 Process::initState()
 {
     if (contextIds.empty())
         fatal("Process %s is not associated with any HW contexts!\n", name());
 
     // first thread context for this process... initialize & enable
-    ThreadContext *tc = system->getThreadContext(contextIds[0]);
+    ThreadContext *tc = system->threads[contextIds[0]];
 
     // mark this context as active so it will start ticking.
     tc->activate();
 
-    pTable->initState(tc);
+    pTable->initState();
+
+    initVirtMem.reset(new SETranslatingPortProxy(
+                tc, SETranslatingPortProxy::Always));
+
+    // load object file into target memory
+    image.write(*initVirtMem);
+    interpImage.write(*initVirtMem);
 }
 
 DrainState
@@ -307,7 +305,22 @@ Process::drain()
 void
 Process::allocateMem(Addr vaddr, int64_t size, bool clobber)
 {
-    int npages = divCeil(size, (int64_t)PageBytes);
+    // Check if the page has been mapped by other cores if not to clobber.
+    // When running multithreaded programs in SE-mode with DerivO3CPU model,
+    // there are cases where two or more cores have page faults on the same
+    // page in nearby ticks. When the cores try to handle the faults at the
+    // commit stage (also in nearby ticks/cycles), the first core will ask for
+    // a physical page frame to map with the virtual page. Other cores can
+    // return if the page has been mapped and `!clobber`.
+    if (!clobber) {
+        const EmulationPageTable::Entry *pte = pTable->lookup(vaddr);
+        if (pte) {
+            warn("Process::allocateMem: addr %#x already mapped\n", vaddr);
+            return;
+        }
+    }
+
+    int npages = divCeil(size, pTable->pageSize());
     Addr paddr = system->allocPhysPages(npages);
     pTable->map(vaddr, paddr, size,
                 clobber ? EmulationPageTable::Clobber :
@@ -322,45 +335,20 @@ Process::replicatePage(Addr vaddr, Addr new_paddr, ThreadContext *old_tc,
         new_paddr = system->allocPhysPages(1);
 
     // Read from old physical page.
-    uint8_t *buf_p = new uint8_t[PageBytes];
-    old_tc->getMemProxy().readBlob(vaddr, buf_p, PageBytes);
+    uint8_t buf_p[pTable->pageSize()];
+    old_tc->getVirtProxy().readBlob(vaddr, buf_p, sizeof(buf_p));
 
     // Create new mapping in process address space by clobbering existing
     // mapping (if any existed) and then write to the new physical page.
     bool clobber = true;
-    pTable->map(vaddr, new_paddr, PageBytes, clobber);
-    new_tc->getMemProxy().writeBlob(vaddr, buf_p, PageBytes);
-    delete[] buf_p;
+    pTable->map(vaddr, new_paddr, sizeof(buf_p), clobber);
+    new_tc->getVirtProxy().writeBlob(vaddr, buf_p, sizeof(buf_p));
 }
 
 bool
-Process::fixupStackFault(Addr vaddr)
+Process::fixupFault(Addr vaddr)
 {
-    Addr stack_min = memState->getStackMin();
-    Addr stack_base = memState->getStackBase();
-    Addr max_stack_size = memState->getMaxStackSize();
-
-    // Check if this is already on the stack and there's just no page there
-    // yet.
-    if (vaddr >= stack_min && vaddr < stack_base) {
-        allocateMem(roundDown(vaddr, PageBytes), PageBytes);
-        return true;
-    }
-
-    // We've accessed the next page of the stack, so extend it to include
-    // this address.
-    if (vaddr < stack_min && vaddr >= stack_base - max_stack_size) {
-        while (vaddr < stack_min) {
-            stack_min -= TheISA::PageBytes;
-            if (stack_base - stack_min > max_stack_size)
-                fatal("Maximum stack size exceeded\n");
-            allocateMem(stack_min, TheISA::PageBytes);
-            inform("Increasing stack size by one page.");
-        }
-        memState->setStackMin(stack_min);
-        return true;
-    }
-    return false;
+    return memState->fixupFault(vaddr);
 }
 
 void
@@ -374,11 +362,6 @@ Process::serialize(CheckpointOut &cp) const
      */
 
     warn("Checkpoints for file descriptors currently do not work.");
-#if 0
-    for (int x = 0; x < fds->getSize(); x++)
-        (*fds)[x].serializeSection(cp, csprintf("FDEntry%d", x));
-#endif
-
 }
 
 void
@@ -391,11 +374,6 @@ Process::unserialize(CheckpointIn &cp)
      * come back and fix them at a later date.
      */
     warn("Checkpoints for file descriptors currently do not work.");
-#if 0
-    for (int x = 0; x < fds->getSize(); x++)
-        (*fds)[x]->unserializeSection(cp, csprintf("FDEntry%d", x));
-    fds->restoreFileOffsets();
-#endif
     // The above returns a bool so that you could do something if you don't
     // find the param in the checkpoint if you wanted to, like set a default
     // but in this case we'll just stick with the instantiated value if not
@@ -411,24 +389,6 @@ Process::map(Addr vaddr, Addr paddr, int size, bool cacheable)
     return true;
 }
 
-void
-Process::syscall(int64_t callnum, ThreadContext *tc, Fault *fault)
-{
-    numSyscalls++;
-
-    SyscallDesc *desc = getDesc(callnum);
-    if (desc == nullptr)
-        fatal("Syscall %d out of range", callnum);
-
-    desc->doSyscall(callnum, this, tc, fault);
-}
-
-IntReg
-Process::getSyscallArg(ThreadContext *tc, int &i, int width)
-{
-    return getSyscallArg(tc, i);
-}
-
 EmulatedDriver *
 Process::findDriver(std::string filename)
 {
@@ -440,17 +400,50 @@ Process::findDriver(std::string filename)
     return nullptr;
 }
 
+std::string
+Process::checkPathRedirect(const std::string &filename)
+{
+    // If the input parameter contains a relative path, convert it.
+    // The target version of the current working directory is fine since
+    // we immediately convert it using redirect paths into a host version.
+    auto abs_path = absolutePath(filename, false);
+
+    for (auto path : system->redirectPaths) {
+        // Search through the redirect paths to see if a starting substring of
+        // our path falls into any buckets which need to redirected.
+        if (startswith(abs_path, path->appPath())) {
+            std::string tail = abs_path.substr(path->appPath().size());
+
+            // If this path needs to be redirected, search through a list
+            // of targets to see if we can match a valid file (or directory).
+            for (auto host_path : path->hostPaths()) {
+                if (access((host_path + tail).c_str(), R_OK) == 0) {
+                    // Return the valid match.
+                    return host_path + tail;
+                }
+            }
+            // The path needs to be redirected, but the file or directory
+            // does not exist on the host filesystem. Return the first
+            // host path as a default.
+            return path->hostPaths()[0] + tail;
+        }
+    }
+
+    // The path does not need to be redirected.
+    return abs_path;
+}
+
 void
 Process::updateBias()
 {
-    ObjectFile *interp = objFile->getInterpreter();
+    auto *interp = objFile->getInterpreter();
 
     if (!interp || !interp->relocatable())
         return;
 
     // Determine how large the interpreters footprint will be in the process
     // address space.
-    Addr interp_mapsize = roundUp(interp->mapSize(), TheISA::PageBytes);
+    Addr interp_mapsize = roundUp(interp->mapSize(), pTable->pageSize());
 
     // We are allocating the memory area; set the bias to the lowest address
     // in the allocated memory region.
@@ -466,7 +459,7 @@ Process::updateBias()
     interp->updateBias(ld_bias);
 }
 
-ObjectFile *
+Loader::ObjectFile *
 Process::getInterpreter()
 {
     return objFile->getInterpreter();
@@ -475,7 +468,7 @@ Process::getInterpreter()
 Addr
 Process::getBias()
 {
-    ObjectFile *interp = getInterpreter();
+    auto *interp = getInterpreter();
 
     return interp ? interp->bias() : objFile->bias();
 }
@@ -483,177 +476,50 @@ Process::getBias()
 Addr
 Process::getStartPC()
 {
-    ObjectFile *interp = getInterpreter();
+    auto *interp = getInterpreter();
 
     return interp ? interp->entryPoint() : objFile->entryPoint();
 }
 
-Process *
-ProcessParams::create()
+std::string
+Process::absolutePath(const std::string &filename, bool host_filesystem)
 {
-    Process *process = nullptr;
+    if (filename.empty() || startswith(filename, "/"))
+        return filename;
 
-    // If not specified, set the executable parameter equal to the
-    // simulated system's zeroth command line parameter
-    if (executable == "") {
-        executable = cmd[0];
+    // Construct the absolute path given the current working directory for
+    // either the host filesystem or target filesystem. The distinction only
+    // matters if filesystem redirection is utilized in the simulation.
+    auto path_base = std::string();
+    if (host_filesystem) {
+        path_base = hostCwd;
+        assert(!hostCwd.empty());
+    } else {
+        path_base = tgtCwd;
+        assert(!tgtCwd.empty());
     }
 
-    ObjectFile *obj_file = createObjectFile(executable);
-    if (obj_file == nullptr) {
-        fatal("Can't load object file %s", executable);
-    }
+    // Add a trailing '/' if the current working directory did not have one.
+    normalize(path_base);
 
-#if THE_ISA == ALPHA_ISA
-    if (obj_file->getArch() != ObjectFile::Alpha)
-        fatal("Object file architecture does not match compiled ISA (Alpha).");
+    // Append the filename onto the current working path.
+    auto absolute_path = path_base + filename;
 
-    switch (obj_file->getOpSys()) {
-      case ObjectFile::UnknownOpSys:
-        warn("Unknown operating system; assuming Linux.");
-        // fall through
-      case ObjectFile::Linux:
-        process = new AlphaLinuxProcess(this, obj_file);
-        break;
-
-      default:
-        fatal("Unknown/unsupported operating system.");
-    }
-#elif THE_ISA == SPARC_ISA
-    if (obj_file->getArch() != ObjectFile::SPARC64 &&
-        obj_file->getArch() != ObjectFile::SPARC32)
-        fatal("Object file architecture does not match compiled ISA (SPARC).");
-    switch (obj_file->getOpSys()) {
-      case ObjectFile::UnknownOpSys:
-        warn("Unknown operating system; assuming Linux.");
-        // fall through
-      case ObjectFile::Linux:
-        if (obj_file->getArch() == ObjectFile::SPARC64) {
-            process = new Sparc64LinuxProcess(this, obj_file);
-        } else {
-            process = new Sparc32LinuxProcess(this, obj_file);
-        }
-        break;
-
-      case ObjectFile::Solaris:
-        process = new SparcSolarisProcess(this, obj_file);
-        break;
-
-      default:
-        fatal("Unknown/unsupported operating system.");
-    }
-#elif THE_ISA == X86_ISA
-    if (obj_file->getArch() != ObjectFile::X86_64 &&
-        obj_file->getArch() != ObjectFile::I386)
-        fatal("Object file architecture does not match compiled ISA (x86).");
-    switch (obj_file->getOpSys()) {
-      case ObjectFile::UnknownOpSys:
-        warn("Unknown operating system; assuming Linux.");
-        // fall through
-      case ObjectFile::Linux:
-        if (obj_file->getArch() == ObjectFile::X86_64) {
-            process = new X86_64LinuxProcess(this, obj_file);
-        } else {
-            process = new I386LinuxProcess(this, obj_file);
-        }
-        break;
-
-      default:
-        fatal("Unknown/unsupported operating system.");
-    }
-#elif THE_ISA == MIPS_ISA
-    if (obj_file->getArch() != ObjectFile::Mips)
-        fatal("Object file architecture does not match compiled ISA (MIPS).");
-    switch (obj_file->getOpSys()) {
-      case ObjectFile::UnknownOpSys:
-        warn("Unknown operating system; assuming Linux.");
-        // fall through
-      case ObjectFile::Linux:
-        process = new MipsLinuxProcess(this, obj_file);
-        break;
-
-      default:
-        fatal("Unknown/unsupported operating system.");
-    }
-#elif THE_ISA == ARM_ISA
-    ObjectFile::Arch arch = obj_file->getArch();
-    if (arch != ObjectFile::Arm && arch != ObjectFile::Thumb &&
-        arch != ObjectFile::Arm64)
-        fatal("Object file architecture does not match compiled ISA (ARM).");
-    switch (obj_file->getOpSys()) {
-      case ObjectFile::UnknownOpSys:
-        warn("Unknown operating system; assuming Linux.");
-        // fall through
-      case ObjectFile::Linux:
-        if (arch == ObjectFile::Arm64) {
-            process = new ArmLinuxProcess64(this, obj_file,
-                                            obj_file->getArch());
-        } else {
-            process = new ArmLinuxProcess32(this, obj_file,
-                                            obj_file->getArch());
-        }
-        break;
-      case ObjectFile::FreeBSD:
-        if (arch == ObjectFile::Arm64) {
-            process = new ArmFreebsdProcess64(this, obj_file,
-                                              obj_file->getArch());
-        } else {
-            process = new ArmFreebsdProcess32(this, obj_file,
-                                              obj_file->getArch());
-        }
-        break;
-      case ObjectFile::LinuxArmOABI:
-        fatal("M5 does not support ARM OABI binaries. Please recompile with an"
-              " EABI compiler.");
-      default:
-        fatal("Unknown/unsupported operating system.");
-    }
-#elif THE_ISA == POWER_ISA
-    if (obj_file->getArch() != ObjectFile::Power)
-        fatal("Object file architecture does not match compiled ISA (Power).");
-    switch (obj_file->getOpSys()) {
-      case ObjectFile::UnknownOpSys:
-        warn("Unknown operating system; assuming Linux.");
-        // fall through
-      case ObjectFile::Linux:
-        process = new PowerLinuxProcess(this, obj_file);
-        break;
-
-      default:
-        fatal("Unknown/unsupported operating system.");
-    }
-#elif THE_ISA == RISCV_ISA
-    if (obj_file->getArch() != ObjectFile::Riscv)
-        fatal("Object file architecture does not match compiled ISA (RISCV).");
-    switch (obj_file->getOpSys()) {
-      case ObjectFile::UnknownOpSys:
-        warn("Unknown operating system; assuming Linux.");
-        // fall through
-      case ObjectFile::Linux:
-        process = new RiscvLinuxProcess(this, obj_file);
-        break;
-      default:
-        fatal("Unknown/unsupported operating system.");
-    }
-#else
-#error "THE_ISA not set"
-#endif
-
-    if (process == nullptr)
-        fatal("Unknown error creating process object.");
-    return process;
+    return absolute_path;
 }
 
-std::string
-Process::fullPath(const std::string &file_name)
+Process *
+ProcessParams::create() const
 {
-    if (file_name[0] == '/' || cwd.empty())
-        return file_name;
+    // If not specified, set the executable parameter equal to the
+    // simulated system's zeroth command line parameter
+    const std::string &exec = (executable == "") ? cmd[0] : executable;
 
-    std::string full = cwd;
+    auto *obj_file = Loader::createObjectFile(exec);
+    fatal_if(!obj_file, "Cannot load object file %s.", exec);
 
-    if (cwd[cwd.size() - 1] != '/')
-        full += '/';
+    Process *process = Process::tryLoaders(*this, obj_file);
+    fatal_if(!process, "Unknown error creating process object.");
 
-    return full + file_name;
+    return process;
 }

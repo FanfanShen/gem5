@@ -37,14 +37,14 @@
 
 #include "cpu/testers/directedtest/DirectedGenerator.hh"
 #include "cpu/testers/directedtest/RubyDirectedTester.hh"
-#include "mem/protocol/SeriesRequestGeneratorStatus.hh"
+#include "mem/ruby/protocol/SeriesRequestGeneratorStatus.hh"
 #include "params/SeriesRequestGenerator.hh"
 
 class SeriesRequestGenerator : public DirectedGenerator
 {
   public:
     typedef SeriesRequestGeneratorParams Params;
-    SeriesRequestGenerator(const Params *p);
+    SeriesRequestGenerator(const Params &p);
 
     ~SeriesRequestGenerator();
 

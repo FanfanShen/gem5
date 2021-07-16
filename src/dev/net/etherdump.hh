@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 /* @file
@@ -54,7 +52,7 @@ class EtherDump : public SimObject
 
   public:
     typedef EtherDumpParams Params;
-    EtherDump(const Params *p);
+    EtherDump(const Params &p);
 
     inline void dump(EthPacketPtr &pkt) { dumpPacket(pkt); }
 };

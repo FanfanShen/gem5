@@ -34,8 +34,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Radhika Jagtap
 
 import PlotPowerStates as plotter
 import argparse
@@ -83,7 +81,7 @@ def main():
         # place tex and pdf files in outdir
         os.chdir(args.outdir)
         texfile_s = 'stacked_lowp_sweep.tex'
-        print "\t", texfile_s
+        print("\t", texfile_s)
         outfile = open(texfile_s, 'w')
 
         startDocText(outfile)
@@ -108,9 +106,9 @@ def main():
         endDocText(outfile)
         outfile.close()
 
-        print "\n Generating pdf file"
-        print "*******************************"
-        print "\tpdflatex ", texfile_s
+        print("\n Generating pdf file")
+        print("*******************************")
+        print("\tpdflatex ", texfile_s)
         # Run pdflatex to generate to pdf
         call(["pdflatex", texfile_s])
         call(["open", texfile_s.split('.')[0] + '.pdf'])

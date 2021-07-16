@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 /**
@@ -57,7 +55,7 @@ class T1000 : public Platform
      * @param s system the object belongs to
      * @param intctrl pointer to the interrupt controller
      */
-    T1000(const Params *p);
+    T1000(const Params &p);
 
     /**
      * Cause the cpu to post a serial interrupt to the CPU.

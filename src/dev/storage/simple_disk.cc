@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 /* @file
@@ -50,10 +48,8 @@
 #include "mem/port_proxy.hh"
 #include "sim/system.hh"
 
-using namespace std;
-
-SimpleDisk::SimpleDisk(const Params *p)
-    : SimObject(p), system(p->system), image(p->disk)
+SimpleDisk::SimpleDisk(const Params &p)
+    : SimObject(p), system(p.system), image(p.disk)
 {}
 
 SimpleDisk::~SimpleDisk()
@@ -83,18 +79,4 @@ void
 SimpleDisk::write(Addr addr, baddr_t block, int count)
 {
     panic("unimplemented!\n");
-
-#if 0
-    uint8_t *data = physmem->dma_addr(addr, count);
-    if (!data)
-        panic("dma out of range! write addr=%#x count=%d\n", addr, count);
-
-    image->write(data, block, count);
-#endif
-}
-
-SimpleDisk *
-SimpleDiskParams::create()
-{
-    return new SimpleDisk(this);
 }

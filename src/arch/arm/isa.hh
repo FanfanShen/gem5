@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2012-2018 ARM Limited
+ * Copyright (c) 2010, 2012-2021 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_ARM_ISA_HH__
@@ -46,31 +44,33 @@
 #include "arch/arm/isa_device.hh"
 #include "arch/arm/miscregs.hh"
 #include "arch/arm/registers.hh"
+#include "arch/arm/self_debug.hh"
 #include "arch/arm/system.hh"
 #include "arch/arm/tlb.hh"
 #include "arch/arm/types.hh"
+#include "arch/arm/utility.hh"
+#include "arch/generic/isa.hh"
 #include "arch/generic/traits.hh"
 #include "debug/Checkpoint.hh"
+#include "enums/DecoderFlavor.hh"
 #include "enums/VecRegRenameMode.hh"
 #include "sim/sim_object.hh"
-#include "enums/DecoderFlavour.hh"
 
 struct ArmISAParams;
 struct DummyArmISADeviceParams;
-class ThreadContext;
 class Checkpoint;
 class EventManager;
 
 namespace ArmISA
 {
-    class ISA : public SimObject
+    class ISA : public BaseISA
     {
       protected:
         // Parent system
         ArmSystem *system;
 
         // Micro Architecture
-        const Enums::DecoderFlavour _decoderFlavour;
+        const Enums::DecoderFlavor _decoderFlavor;
         const Enums::VecRegRenameMode _vecRegRenameMode;
 
         /** Dummy device for to handle non-existing ISA devices */
@@ -82,6 +82,9 @@ namespace ArmISA
         // Generic timer interface belonging to this ISA
         std::unique_ptr<BaseISADevice> timer;
 
+        // GICv3 CPU interface belonging to this ISA
+        std::unique_ptr<BaseISADevice> gicv3CpuInterface;
+
         // Cached copies of system-level properties
         bool highestELIs64;
         bool haveSecurity;
@@ -90,12 +93,25 @@ namespace ArmISA
         bool haveCrypto;
         bool haveLargeAsid64;
         uint8_t physAddrRange;
+        bool haveSVE;
+        bool haveLSE;
+        bool haveVHE;
+        bool havePAN;
+        bool haveSecEL2;
+        bool haveTME;
+
+        /** SVE vector length in quadwords */
+        unsigned sveVL;
 
         /**
          * If true, accesses to IMPLEMENTATION DEFINED registers are treated
          * as NOP hence not causing UNDEFINED INSTRUCTION.
          */
         bool impdefAsNop;
+
+        bool afterStartup;
+
+        SelfDebug * selfDebug;
 
         /** MiscReg metadata **/
         struct MiscRegLUTEntry {
@@ -171,6 +187,10 @@ namespace ArmISA
                 info[MISCREG_BANKED] = v;
                 return *this;
             }
+            chain banked64(bool v = true) const {
+                info[MISCREG_BANKED64] = v;
+                return *this;
+            }
             chain bankedChild(bool v = true) const {
                 info[MISCREG_BANKED_CHILD] = v;
                 return *this;
@@ -234,12 +254,70 @@ namespace ArmISA
                 privNonSecureRead(v);
                 return *this;
             }
+            chain hypE2HSecureRead(bool v = true) const {
+                info[MISCREG_HYP_E2H_S_RD] = v;
+                return *this;
+            }
+            chain hypE2HNonSecureRead(bool v = true) const {
+                info[MISCREG_HYP_E2H_NS_RD] = v;
+                return *this;
+            }
+            chain hypE2HRead(bool v = true) const {
+                hypE2HSecureRead(v);
+                hypE2HNonSecureRead(v);
+                return *this;
+            }
+            chain hypE2HSecureWrite(bool v = true) const {
+                info[MISCREG_HYP_E2H_S_WR] = v;
+                return *this;
+            }
+            chain hypE2HNonSecureWrite(bool v = true) const {
+                info[MISCREG_HYP_E2H_NS_WR] = v;
+                return *this;
+            }
+            chain hypE2HWrite(bool v = true) const {
+                hypE2HSecureWrite(v);
+                hypE2HNonSecureWrite(v);
+                return *this;
+            }
+            chain hypE2H(bool v = true) const {
+                hypE2HRead(v);
+                hypE2HWrite(v);
+                return *this;
+            }
+            chain hypSecureRead(bool v = true) const {
+                info[MISCREG_HYP_S_RD] = v;
+                return *this;
+            }
+            chain hypNonSecureRead(bool v = true) const {
+                info[MISCREG_HYP_NS_RD] = v;
+                return *this;
+            }
             chain hypRead(bool v = true) const {
-                info[MISCREG_HYP_RD] = v;
+                hypE2HRead(v);
+                hypSecureRead(v);
+                hypNonSecureRead(v);
+                return *this;
+            }
+            chain hypSecureWrite(bool v = true) const {
+                info[MISCREG_HYP_S_WR] = v;
+                return *this;
+            }
+            chain hypNonSecureWrite(bool v = true) const {
+                info[MISCREG_HYP_NS_WR] = v;
                 return *this;
             }
             chain hypWrite(bool v = true) const {
-                info[MISCREG_HYP_WR] = v;
+                hypE2HWrite(v);
+                hypSecureWrite(v);
+                hypNonSecureWrite(v);
+                return *this;
+            }
+            chain hypSecure(bool v = true) const {
+                hypE2HSecureRead(v);
+                hypE2HSecureWrite(v);
+                hypSecureRead(v);
+                hypSecureWrite(v);
                 return *this;
             }
             chain hyp(bool v = true) const {
@@ -247,19 +325,36 @@ namespace ArmISA
                 hypWrite(v);
                 return *this;
             }
+            chain monE2HRead(bool v = true) const {
+                info[MISCREG_MON_E2H_RD] = v;
+                return *this;
+            }
+            chain monE2HWrite(bool v = true) const {
+                info[MISCREG_MON_E2H_WR] = v;
+                return *this;
+            }
+            chain monE2H(bool v = true) const {
+                monE2HRead(v);
+                monE2HWrite(v);
+                return *this;
+            }
             chain monSecureRead(bool v = true) const {
+                monE2HRead(v);
                 info[MISCREG_MON_NS0_RD] = v;
                 return *this;
             }
             chain monSecureWrite(bool v = true) const {
+                monE2HWrite(v);
                 info[MISCREG_MON_NS0_WR] = v;
                 return *this;
             }
             chain monNonSecureRead(bool v = true) const {
+                monE2HRead(v);
                 info[MISCREG_MON_NS1_RD] = v;
                 return *this;
             }
             chain monNonSecureWrite(bool v = true) const {
+                monE2HWrite(v);
                 info[MISCREG_MON_NS1_WR] = v;
                 return *this;
             }
@@ -341,6 +436,7 @@ namespace ArmISA
                 user(0);
                 return *this;
             }
+            chain highest(ArmSystem *const sys) const;
             MiscRegLUTEntryInitializer(struct MiscRegLUTEntry &e,
                                        std::bitset<NUM_MISCREG_INFOS> &i)
               : entry(e),
@@ -358,7 +454,7 @@ namespace ArmISA
 
         void initializeMiscRegMetadata();
 
-        MiscReg miscRegs[NumMiscRegs];
+        RegVal miscRegs[NumMiscRegs];
         const IntRegIndex *intRegMap;
 
         void
@@ -399,34 +495,45 @@ namespace ArmISA
             }
         }
 
-        BaseISADevice &getGenericTimer(ThreadContext *tc);
-
+        BaseISADevice &getGenericTimer();
+        BaseISADevice &getGICv3CPUInterface();
 
       private:
-        inline void assert32(ThreadContext *tc) {
-            CPSR cpsr M5_VAR_USED = readMiscReg(MISCREG_CPSR, tc);
-            assert(cpsr.width);
-        }
-
-        inline void assert64(ThreadContext *tc) {
-            CPSR cpsr M5_VAR_USED = readMiscReg(MISCREG_CPSR, tc);
-            assert(!cpsr.width);
-        }
+        void assert32() { assert(((CPSR)readMiscReg(MISCREG_CPSR)).width); }
+        void assert64() { assert(!((CPSR)readMiscReg(MISCREG_CPSR)).width); }
 
       public:
         void clear();
 
       protected:
-        void clear32(const ArmISAParams *p, const SCTLR &sctlr_rst);
-        void clear64(const ArmISAParams *p);
-        void initID32(const ArmISAParams *p);
-        void initID64(const ArmISAParams *p);
+        void clear32(const ArmISAParams &p, const SCTLR &sctlr_rst);
+        void clear64(const ArmISAParams &p);
+        void initID32(const ArmISAParams &p);
+        void initID64(const ArmISAParams &p);
+
+        void addressTranslation(TLB::ArmTranslationType tran_type,
+            BaseTLB::Mode mode, Request::Flags flags, RegVal val);
+        void addressTranslation64(TLB::ArmTranslationType tran_type,
+            BaseTLB::Mode mode, Request::Flags flags, RegVal val);
 
       public:
-        MiscReg readMiscRegNoEffect(int misc_reg) const;
-        MiscReg readMiscReg(int misc_reg, ThreadContext *tc);
-        void setMiscRegNoEffect(int misc_reg, const MiscReg &val);
-        void setMiscReg(int misc_reg, const MiscReg &val, ThreadContext *tc);
+        SelfDebug*
+        getSelfDebug() const
+        {
+            return selfDebug;
+        }
+
+        static SelfDebug*
+        getSelfDebug(ThreadContext *tc)
+        {
+            auto *arm_isa = static_cast<ArmISA::ISA *>(tc->getIsaPtr());
+            return arm_isa->getSelfDebug();
+        }
+
+        RegVal readMiscRegNoEffect(int misc_reg) const;
+        RegVal readMiscReg(int misc_reg);
+        void setMiscRegNoEffect(int misc_reg, RegVal val);
+        void setMiscReg(int misc_reg, RegVal val);
 
         RegId
         flattenRegId(const RegId& regId) const
@@ -439,7 +546,11 @@ namespace ArmISA
               case VecRegClass:
                 return RegId(VecRegClass, flattenVecIndex(regId.index()));
               case VecElemClass:
-                return RegId(VecElemClass, flattenVecElemIndex(regId.index()));
+                return RegId(VecElemClass, flattenVecElemIndex(regId.index()),
+                             regId.elemIndex());
+              case VecPredRegClass:
+                return RegId(VecPredRegClass,
+                             flattenVecPredIndex(regId.index()));
               case CCRegClass:
                 return RegId(CCRegClass, flattenCCIndex(regId.index()));
               case MiscRegClass:
@@ -496,6 +607,13 @@ namespace ArmISA
 
         int
         flattenVecElemIndex(int reg) const
+        {
+            assert(reg >= 0);
+            return reg;
+        }
+
+        int
+        flattenVecPredIndex(int reg) const
         {
             assert(reg >= 0);
             return reg;
@@ -618,9 +736,95 @@ namespace ArmISA
                                      inSecureState(miscRegs[MISCREG_SCR],
                                                    miscRegs[MISCREG_CPSR]);
                     flat_idx += secureReg ? 2 : 1;
+                } else {
+                    flat_idx = snsBankedIndex64((MiscRegIndex)reg,
+                        !inSecureState(miscRegs[MISCREG_SCR],
+                                       miscRegs[MISCREG_CPSR]));
                 }
             }
             return flat_idx;
+        }
+
+        /**
+         * Returns the enconcing equivalent when VHE is implemented and
+         * HCR_EL2.E2H is enabled and executing at EL2
+         */
+        int
+        redirectRegVHE(ThreadContext * tc, int misc_reg)
+        {
+            const HCR hcr = readMiscRegNoEffect(MISCREG_HCR_EL2);
+            if (hcr.e2h == 0x0 || currEL(tc) != EL2)
+                return misc_reg;
+            SCR scr = readMiscRegNoEffect(MISCREG_SCR_EL3);
+            bool sec_el2 = scr.eel2 && haveSecEL2;
+            switch(misc_reg) {
+              case MISCREG_SPSR_EL1:
+                  return MISCREG_SPSR_EL2;
+              case MISCREG_ELR_EL1:
+                  return MISCREG_ELR_EL2;
+              case MISCREG_SCTLR_EL1:
+                  return MISCREG_SCTLR_EL2;
+              case MISCREG_CPACR_EL1:
+                  return MISCREG_CPTR_EL2;
+        //      case :
+        //          return MISCREG_TRFCR_EL2;
+              case MISCREG_TTBR0_EL1:
+                  return MISCREG_TTBR0_EL2;
+              case MISCREG_TTBR1_EL1:
+                  return MISCREG_TTBR1_EL2;
+              case MISCREG_TCR_EL1:
+                  return MISCREG_TCR_EL2;
+              case MISCREG_AFSR0_EL1:
+                  return MISCREG_AFSR0_EL2;
+              case MISCREG_AFSR1_EL1:
+                  return MISCREG_AFSR1_EL2;
+              case MISCREG_ESR_EL1:
+                  return MISCREG_ESR_EL2;
+              case MISCREG_FAR_EL1:
+                  return MISCREG_FAR_EL2;
+              case MISCREG_MAIR_EL1:
+                  return MISCREG_MAIR_EL2;
+              case MISCREG_AMAIR_EL1:
+                  return MISCREG_AMAIR_EL2;
+              case MISCREG_VBAR_EL1:
+                  return MISCREG_VBAR_EL2;
+              case MISCREG_CONTEXTIDR_EL1:
+                  return MISCREG_CONTEXTIDR_EL2;
+              case MISCREG_CNTKCTL_EL1:
+                  return MISCREG_CNTHCTL_EL2;
+              case MISCREG_CNTP_TVAL_EL0:
+                  return sec_el2? MISCREG_CNTHPS_TVAL_EL2:
+                                 MISCREG_CNTHP_TVAL_EL2;
+              case MISCREG_CNTP_CTL_EL0:
+                  return sec_el2? MISCREG_CNTHPS_CTL_EL2:
+                                 MISCREG_CNTHP_CTL_EL2;
+              case MISCREG_CNTP_CVAL_EL0:
+                  return sec_el2? MISCREG_CNTHPS_CVAL_EL2:
+                                 MISCREG_CNTHP_CVAL_EL2;
+              case MISCREG_CNTV_TVAL_EL0:
+                  return sec_el2? MISCREG_CNTHVS_TVAL_EL2:
+                                 MISCREG_CNTHV_TVAL_EL2;
+              case MISCREG_CNTV_CTL_EL0:
+                  return sec_el2? MISCREG_CNTHVS_CTL_EL2:
+                                 MISCREG_CNTHV_CTL_EL2;
+              case MISCREG_CNTV_CVAL_EL0:
+                  return sec_el2? MISCREG_CNTHVS_CVAL_EL2:
+                                 MISCREG_CNTHV_CVAL_EL2;
+              default:
+                  return misc_reg;
+            }
+            /*should not be accessible */
+            return misc_reg;
+        }
+
+        int
+        snsBankedIndex64(MiscRegIndex reg, bool ns) const
+        {
+            int reg_as_int = static_cast<int>(reg);
+            if (miscRegInfo[reg][MISCREG_BANKED64]) {
+                reg_as_int += (haveSecurity && !ns) ? 2 : 1;
+            }
+            return reg_as_int;
         }
 
         std::pair<int,int> getMiscIndices(int misc_reg) const
@@ -644,36 +848,34 @@ namespace ArmISA
             return std::make_pair(lower, upper);
         }
 
-        void serialize(CheckpointOut &cp) const
+        unsigned getCurSveVecLenInBits() const;
+
+        unsigned getCurSveVecLenInBitsAtReset() const { return sveVL * 128; }
+
+        static void zeroSveVecRegUpperPart(VecRegContainer &vc,
+                                           unsigned eCount);
+
+        void serialize(CheckpointOut &cp) const override;
+        void unserialize(CheckpointIn &cp) override;
+
+        void startup() override;
+
+        void setupThreadContext();
+
+        void takeOverFrom(ThreadContext *new_tc,
+                          ThreadContext *old_tc) override;
+
+        Enums::DecoderFlavor decoderFlavor() const { return _decoderFlavor; }
+
+        /** Returns true if the ISA has a GICv3 cpu interface */
+        bool haveGICv3CpuIfc() const
         {
-            DPRINTF(Checkpoint, "Serializing Arm Misc Registers\n");
-            SERIALIZE_ARRAY(miscRegs, NUM_PHYS_MISCREGS);
-
-            SERIALIZE_SCALAR(highestELIs64);
-            SERIALIZE_SCALAR(haveSecurity);
-            SERIALIZE_SCALAR(haveLPAE);
-            SERIALIZE_SCALAR(haveVirtualization);
-            SERIALIZE_SCALAR(haveLargeAsid64);
-            SERIALIZE_SCALAR(physAddrRange);
+            // gicv3CpuInterface is initialized at startup time, hence
+            // trying to read its value before the startup stage will lead
+            // to an error
+            assert(afterStartup);
+            return gicv3CpuInterface != nullptr;
         }
-        void unserialize(CheckpointIn &cp)
-        {
-            DPRINTF(Checkpoint, "Unserializing Arm Misc Registers\n");
-            UNSERIALIZE_ARRAY(miscRegs, NUM_PHYS_MISCREGS);
-            CPSR tmp_cpsr = miscRegs[MISCREG_CPSR];
-            updateRegMap(tmp_cpsr);
-
-            UNSERIALIZE_SCALAR(highestELIs64);
-            UNSERIALIZE_SCALAR(haveSecurity);
-            UNSERIALIZE_SCALAR(haveLPAE);
-            UNSERIALIZE_SCALAR(haveVirtualization);
-            UNSERIALIZE_SCALAR(haveLargeAsid64);
-            UNSERIALIZE_SCALAR(physAddrRange);
-        }
-
-        void startup(ThreadContext *tc);
-
-        Enums::DecoderFlavour decoderFlavour() const { return _decoderFlavour; }
 
         Enums::VecRegRenameMode
         vecRegRenameMode() const
@@ -681,27 +883,50 @@ namespace ArmISA
             return _vecRegRenameMode;
         }
 
-        /// Explicitly import the otherwise hidden startup
-        using SimObject::startup;
+        PARAMS(ArmISA);
 
-        typedef ArmISAParams Params;
+        ISA(const Params &p);
 
-        const Params *params() const;
+        uint64_t
+        getExecutingAsid() const override
+        {
+            return readMiscRegNoEffect(MISCREG_CONTEXTIDR);
+        }
 
-        ISA(Params *p);
+        bool
+        inUserMode() const override
+        {
+            CPSR cpsr = miscRegs[MISCREG_CPSR];
+            return ArmISA::inUserMode(cpsr);
+        }
     };
 }
 
 template<>
-struct initRenameMode<ArmISA::ISA>
+struct RenameMode<ArmISA::ISA>
 {
-    static Enums::VecRegRenameMode mode(const ArmISA::ISA* isa)
+    static Enums::VecRegRenameMode
+    init(const BaseISA* isa)
     {
-        return isa->vecRegRenameMode();
+        auto arm_isa = dynamic_cast<const ArmISA::ISA *>(isa);
+        assert(arm_isa);
+        return arm_isa->vecRegRenameMode();
     }
-    static bool equals(const ArmISA::ISA* isa1, const ArmISA::ISA* isa2)
+
+    static Enums::VecRegRenameMode
+    mode(const ArmISA::PCState& pc)
     {
-        return mode(isa1) == mode(isa2);
+        if (pc.aarch64()) {
+            return Enums::Full;
+        } else {
+            return Enums::Elem;
+        }
+    }
+
+    static bool
+    equalsInit(const BaseISA* isa1, const BaseISA* isa2)
+    {
+        return init(isa1) == init(isa2);
     }
 };
 

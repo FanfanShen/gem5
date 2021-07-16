@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 /** @file
@@ -45,9 +43,9 @@
 #include "sim/byteswap.hh"
 #include "sim/system.hh"
 
-MmDisk::MmDisk(const Params *p)
-    : BasicPioDevice(p, p->image->size() * SectorSize),
-      image(p->image), curSector((off_t)-1), dirty(false)
+MmDisk::MmDisk(const Params &p)
+    : BasicPioDevice(p, p.image->size() * SectorSize),
+      image(p.image), curSector((off_t)-1), dirty(false)
 {
     std::memset(&diskData, 0, SectorSize);
 }
@@ -183,10 +181,4 @@ MmDisk::serialize(CheckpointOut &cp) const
         assert(bytes_read == SectorSize);
     }
     ClockedObject::serialize(cp);
-}
-
-MmDisk *
-MmDiskParams::create()
-{
-    return new MmDisk(this);
 }

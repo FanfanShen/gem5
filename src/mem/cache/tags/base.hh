@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2014,2016-2018 ARM Limited
+ * Copyright (c) 2012-2014,2016-2019 ARM Limited
  * All rights reserved.
  *
  * The license below extends only to copyright in the software and shall
@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Ron Dreslinski
  */
 
 /**
@@ -50,6 +47,7 @@
 #define __MEM_CACHE_TAGS_BASE_HH__
 
 #include <cassert>
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -58,6 +56,7 @@
 #include "base/statistics.hh"
 #include "base/types.hh"
 #include "mem/cache/cache_blk.hh"
+#include "mem/packet.hh"
 #include "params/BaseTags.hh"
 #include "sim/clocked_object.hh"
 
@@ -100,62 +99,64 @@ class BaseTags : public ClockedObject
     /** The data blocks, 1 per cache block. */
     std::unique_ptr<uint8_t[]> dataBlks;
 
-    // Statistics
     /**
      * TODO: It would be good if these stats were acquired after warmup.
-     * @addtogroup CacheStatistics
-     * @{
      */
+    struct BaseTagStats : public Stats::Group
+    {
+        BaseTagStats(BaseTags &tags);
 
-    /** Per cycle average of the number of tags that hold valid data. */
-    Stats::Average tagsInUse;
+        void regStats() override;
+        void preDumpStats() override;
 
-    /** The total number of references to a block before it is replaced. */
-    Stats::Scalar totalRefs;
+        BaseTags &tags;
 
-    /**
-     * The number of reference counts sampled. This is different from
-     * replacements because we sample all the valid blocks when the simulator
-     * exits.
-     */
-    Stats::Scalar sampledRefs;
+        /** Per tick average of the number of tags that hold valid data. */
+        Stats::Average tagsInUse;
 
-    /**
-     * Average number of references to a block before is was replaced.
-     * @todo This should change to an average stat once we have them.
-     */
-    Stats::Formula avgRefs;
+        /** The total number of references to a block before it is replaced. */
+        Stats::Scalar totalRefs;
 
-    /** The cycle that the warmup percentage was hit. 0 on failure. */
-    Stats::Scalar warmupCycle;
+        /**
+         * The number of reference counts sampled. This is different
+         * from replacements because we sample all the valid blocks
+         * when the simulator exits.
+         */
+        Stats::Scalar sampledRefs;
 
-    /** Average occupancy of each requestor using the cache */
-    Stats::AverageVector occupancies;
+        /**
+         * Average number of references to a block before is was replaced.
+         * @todo This should change to an average stat once we have them.
+         */
+        Stats::Formula avgRefs;
 
-    /** Average occ % of each requestor using the cache */
-    Stats::Formula avgOccs;
+        /** The tick that the warmup percentage was hit. 0 on failure. */
+        Stats::Scalar warmupTick;
 
-    /** Occupancy of each context/cpu using the cache */
-    Stats::Vector occupanciesTaskId;
+        /** Average occupancy of each requestor using the cache */
+        Stats::AverageVector occupancies;
 
-    /** Occupancy of each context/cpu using the cache */
-    Stats::Vector2d ageTaskId;
+        /** Average occ % of each requestor using the cache */
+        Stats::Formula avgOccs;
 
-    /** Occ % of each context/cpu using the cache */
-    Stats::Formula percentOccsTaskId;
+        /** Occupancy of each context/cpu using the cache */
+        Stats::Vector occupanciesTaskId;
 
-    /** Number of tags consulted over all accesses. */
-    Stats::Scalar tagAccesses;
-    /** Number of data blocks consulted over all accesses. */
-    Stats::Scalar dataAccesses;
+        /** Occupancy of each context/cpu using the cache */
+        Stats::Vector2d ageTaskId;
 
-    /**
-     * @}
-     */
+        /** Occ ratio of each context/cpu using the cache */
+        Stats::Formula ratioOccsTaskId;
+
+        /** Number of tags consulted over all accesses. */
+        Stats::Scalar tagAccesses;
+        /** Number of data blocks consulted over all accesses. */
+        Stats::Scalar dataAccesses;
+    } stats;
 
   public:
     typedef BaseTagsParams Params;
-    BaseTags(const Params *p);
+    BaseTags(const Params &p);
 
     /**
      * Destructor.
@@ -168,11 +169,6 @@ class BaseTags : public ClockedObject
      * code generation does not allow templates.
      */
     virtual void tagsInit() = 0;
-
-    /**
-     * Register local statistics.
-     */
-    void regStats();
 
     /**
      * Average in the reference count for valid blocks when the simulation
@@ -257,9 +253,9 @@ class BaseTags : public ClockedObject
         assert(blk);
         assert(blk->isValid());
 
-        occupancies[blk->srcMasterId]--;
-        totalRefs += blk->refCount;
-        sampledRefs++;
+        stats.occupancies[blk->getSrcRequestorId()]--;
+        stats.totalRefs += blk->getRefCount();
+        stats.sampledRefs++;
 
         blk->invalidate();
     }
@@ -275,11 +271,13 @@ class BaseTags : public ClockedObject
      *
      * @param addr Address to find a victim for.
      * @param is_secure True if the target memory space is secure.
+     * @param size Size, in bits, of new block to allocate.
      * @param evict_blks Cache blocks to be evicted.
      * @return Cache block to be replaced.
      */
     virtual CacheBlk* findVictim(Addr addr, const bool is_secure,
-                                 std::vector<CacheBlk*>& evict_blks) const = 0;
+                                 const std::size_t size,
+                                 std::vector<CacheBlk*>& evict_blks) = 0;
 
     /**
      * Access block and update replacement data. May not succeed, in which case
@@ -305,15 +303,20 @@ class BaseTags : public ClockedObject
     /**
      * Insert the new block into the cache and update stats.
      *
-     * @param addr Address of the block.
-     * @param is_secure Whether the block is in secure space or not.
-     * @param src_master_ID The source requestor ID.
-     * @param task_ID The new task ID.
+     * @param pkt Packet holding the address to update
      * @param blk The block to update.
      */
-    virtual void insertBlock(const Addr addr, const bool is_secure,
-                             const int src_master_ID, const uint32_t task_ID,
-                             CacheBlk *blk);
+    virtual void insertBlock(const PacketPtr pkt, CacheBlk *blk);
+
+    /**
+     * Move a block's metadata to another location decided by the replacement
+     * policy. It behaves as a swap, however, since the destination block
+     * should be invalid, the result is a move.
+     *
+     * @param src_blk The source block.
+     * @param dest_blk The destination block. Must be invalid.
+     */
+    virtual void moveBlock(CacheBlk *src_blk, CacheBlk *dest_blk);
 
     /**
      * Regenerate the block address.
@@ -358,22 +361,6 @@ class BaseTags : public ClockedObject
      * @param blk The input block
      */
     void computeStatsVisitor(CacheBlk &blk);
-};
-
-class BaseTagsCallback : public Callback
-{
-    BaseTags *tags;
-  public:
-    BaseTagsCallback(BaseTags *t) : tags(t) {}
-    virtual void process() { tags->cleanupRefs(); };
-};
-
-class BaseTagsDumpCallback : public Callback
-{
-    BaseTags *tags;
-  public:
-    BaseTagsDumpCallback(BaseTags *t) : tags(t) {}
-    virtual void process() { tags->computeStats(); };
 };
 
 #endif //__MEM_CACHE_TAGS_BASE_HH__

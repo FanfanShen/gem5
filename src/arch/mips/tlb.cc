@@ -25,12 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
- *          Steve Reinhardt
- *          Jaidev Patwardhan
- *          Zhengxing Li
- *          Deyuan Guo
  */
 
 #include "arch/mips/tlb.hh"
@@ -52,7 +46,6 @@
 #include "params/MipsTLB.hh"
 #include "sim/process.hh"
 
-using namespace std;
 using namespace MipsISA;
 
 ///////////////////////////////////////////////////////////////////////
@@ -60,8 +53,7 @@ using namespace MipsISA;
 //  MIPS TLB
 //
 
-TLB::TLB(const Params *p)
-    : BaseTLB(p), size(p->size), nlu(0)
+TLB::TLB(const Params &p) : BaseTLB(p), size(p.size), nlu(0)
 {
     table = new PTE[size];
     memset(table, 0, sizeof(PTE[size]));
@@ -70,8 +62,7 @@ TLB::TLB(const Params *p)
 
 TLB::~TLB()
 {
-    if (table)
-        delete [] table;
+    delete [] table;
 }
 
 // look up an entry in the TLB
@@ -177,7 +168,7 @@ TLB::insertAt(PTE &pte, unsigned Index, int _smallPages)
         }
         table[Index]=pte;
         // Update fast lookup table
-        lookupTable.insert(make_pair(table[Index].VPN, Index));
+        lookupTable.insert(std::make_pair(table[Index].VPN, Index));
     }
 }
 
@@ -219,105 +210,16 @@ TLB::unserialize(CheckpointIn &cp)
         ScopedCheckpointSection sec(cp, csprintf("PTE%d", i));
         table[i].unserialize(cp);
         if (table[i].V0 || table[i].V1) {
-            lookupTable.insert(make_pair(table[i].VPN, i));
+            lookupTable.insert(std::make_pair(table[i].VPN, i));
         }
     }
-}
-
-void
-TLB::regStats()
-{
-    BaseTLB::regStats();
-
-    read_hits
-        .name(name() + ".read_hits")
-        .desc("DTB read hits")
-        ;
-
-    read_misses
-        .name(name() + ".read_misses")
-        .desc("DTB read misses")
-        ;
-
-
-    read_accesses
-        .name(name() + ".read_accesses")
-        .desc("DTB read accesses")
-        ;
-
-    write_hits
-        .name(name() + ".write_hits")
-        .desc("DTB write hits")
-        ;
-
-    write_misses
-        .name(name() + ".write_misses")
-        .desc("DTB write misses")
-        ;
-
-
-    write_accesses
-        .name(name() + ".write_accesses")
-        .desc("DTB write accesses")
-        ;
-
-    hits
-        .name(name() + ".hits")
-        .desc("DTB hits")
-        ;
-
-    misses
-        .name(name() + ".misses")
-        .desc("DTB misses")
-        ;
-
-    accesses
-        .name(name() + ".accesses")
-        .desc("DTB accesses")
-        ;
-
-    hits = read_hits + write_hits;
-    misses = read_misses + write_misses;
-    accesses = read_accesses + write_accesses;
-}
-
-Fault
-TLB::translateInst(const RequestPtr &req, ThreadContext *tc)
-{
-    if (FullSystem)
-        panic("translateInst not implemented in MIPS.\n");
-
-    Process * p = tc->getProcessPtr();
-
-    Fault fault = p->pTable->translate(req);
-    if (fault != NoFault)
-        return fault;
-
-    return NoFault;
-}
-
-Fault
-TLB::translateData(const RequestPtr &req, ThreadContext *tc, bool write)
-{
-    if (FullSystem)
-        panic("translateData not implemented in MIPS.\n");
-
-    Process * p = tc->getProcessPtr();
-
-    Fault fault = p->pTable->translate(req);
-    if (fault != NoFault)
-        return fault;
-
-    return NoFault;
 }
 
 Fault
 TLB::translateAtomic(const RequestPtr &req, ThreadContext *tc, Mode mode)
 {
-    if (mode == Execute)
-        return translateInst(req, tc);
-    else
-        return translateData(req, tc, mode == Write);
+    panic_if(FullSystem, "translateAtomic not implemented in full system.");
+    return tc->getProcessPtr()->pTable->translate(req);
 }
 
 void
@@ -326,6 +228,13 @@ TLB::translateTiming(const RequestPtr &req, ThreadContext *tc,
 {
     assert(translation);
     translation->finish(translateAtomic(req, tc, mode), req, tc, mode);
+}
+
+Fault
+TLB::translateFunctional(const RequestPtr &req, ThreadContext *tc, Mode mode)
+{
+    panic_if(FullSystem, "translateAtomic not implemented in full system.");
+    return tc->getProcessPtr()->pTable->translate(req);
 }
 
 Fault
@@ -345,10 +254,4 @@ TLB::index(bool advance)
         nextnlu();
 
     return *pte;
-}
-
-MipsISA::TLB *
-MipsTLBParams::create()
-{
-    return new TLB(this);
 }

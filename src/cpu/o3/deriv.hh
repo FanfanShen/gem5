@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #ifndef __CPU_O3_DERIV_HH__
@@ -38,9 +36,7 @@
 class DerivO3CPU : public FullO3CPU<O3CPUImpl>
 {
   public:
-    DerivO3CPU(DerivO3CPUParams *p)
-        : FullO3CPU<O3CPUImpl>(p)
-    { }
+    DerivO3CPU(const DerivO3CPUParams &p) : FullO3CPU<O3CPUImpl>(p) {}
 };
 
 #endif // __CPU_O3_DERIV_HH__

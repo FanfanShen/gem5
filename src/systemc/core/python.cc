@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "systemc/core/python.hh"
@@ -62,9 +60,9 @@ python_ready(pybind11::args args)
 }
 
 void
-systemc_pybind(pybind11::module &m_internal)
+systemc_pybind(pybind11::module_ &m_internal)
 {
-    pybind11::module m = m_internal.def_submodule("systemc");
+    pybind11::module_ m = m_internal.def_submodule("systemc");
     m.def("python_ready", &python_ready);
     for (auto ptr = firstInitFunc(); ptr; ptr = ptr->next)
         ptr->run(m);

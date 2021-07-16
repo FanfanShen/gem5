@@ -29,9 +29,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Sooraj Puthoor,
- *          Anthony Gutierrez
  */
 
 #include "gpu-compute/scheduler.hh"
@@ -40,11 +37,11 @@
 #include "gpu-compute/rr_scheduling_policy.hh"
 #include "params/ComputeUnit.hh"
 
-Scheduler::Scheduler(const ComputeUnitParams *p)
+Scheduler::Scheduler(const ComputeUnitParams &p)
 {
-    if (p->execPolicy == "OLDEST-FIRST") {
+    if (p.execPolicy == "OLDEST-FIRST") {
         schedPolicy = new OFSchedulingPolicy();
-    } else if (p->execPolicy == "ROUND-ROBIN") {
+    } else if (p.execPolicy == "ROUND-ROBIN") {
         schedPolicy = new RRSchedulingPolicy();
     } else {
         fatal("Unimplemented scheduling policy.\n");

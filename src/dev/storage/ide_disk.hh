@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Schultz
  */
 
 /** @file
@@ -241,27 +239,34 @@ class IdeDisk : public SimObject
     DmaState_t dmaState;
     /** Dma transaction is a read */
     bool dmaRead;
+    /** Size of chunks to DMA. */
+    Addr chunkBytes;
     /** PRD table base address */
     uint32_t curPrdAddr;
     /** PRD entry */
     PrdTableEntry curPrd;
-    /** Device ID (master=0/slave=1) */
+    /** Device ID (device0=0/device1=1) */
     int devID;
     /** Interrupt pending */
     bool intrPending;
     /** DMA Aborted */
     bool dmaAborted;
 
-    Stats::Scalar dmaReadFullPages;
-    Stats::Scalar dmaReadBytes;
-    Stats::Scalar dmaReadTxs;
-    Stats::Scalar dmaWriteFullPages;
-    Stats::Scalar dmaWriteBytes;
-    Stats::Scalar dmaWriteTxs;
+    struct IdeDiskStats : public Stats::Group
+    {
+        IdeDiskStats(Stats::Group *parent);
+
+        Stats::Scalar dmaReadFullPages;
+        Stats::Scalar dmaReadBytes;
+        Stats::Scalar dmaReadTxs;
+        Stats::Scalar dmaWriteFullPages;
+        Stats::Scalar dmaWriteBytes;
+        Stats::Scalar dmaWriteTxs;
+    } ideDiskStats;
 
   public:
     typedef IdeDiskParams Params;
-    IdeDisk(const Params *p);
+    IdeDisk(const Params &p);
 
     /**
      * Delete the data buffer.
@@ -274,17 +279,15 @@ class IdeDisk : public SimObject
     void reset(int id);
 
     /**
-     * Register Statistics
-     */
-    void regStats() override;
-
-    /**
      * Set the controller for this device
      * @param c The IDE controller
      */
-    void setController(IdeController *c) {
-        if (ctrl) panic("Cannot change the controller once set!\n");
+    void
+    setController(IdeController *c, Addr chunk_bytes)
+    {
+        panic_if(ctrl, "Cannot change the controller once set!\n");
         ctrl = c;
+        chunkBytes = chunk_bytes;
     }
 
     // Device register read/write

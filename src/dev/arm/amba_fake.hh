@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 
@@ -57,13 +55,8 @@
 class AmbaFake : public AmbaPioDevice
 {
   public:
-   typedef AmbaFakeParams Params;
-   const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
-    AmbaFake(const Params *p);
+    PARAMS(AmbaFake);
+    AmbaFake(const Params &p);
 
     virtual Tick read(PacketPtr pkt);
     virtual Tick write(PacketPtr pkt);

@@ -1,4 +1,4 @@
-# Copyright (c) 2018 Inria
+# Copyright (c) 2018-2020 Inria
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -23,8 +23,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Daniel Carvalho
 
 from m5.params import *
 from m5.proxy import *
@@ -33,31 +31,32 @@ from m5.SimObject import SimObject
 class BaseReplacementPolicy(SimObject):
     type = 'BaseReplacementPolicy'
     abstract = True
+    cxx_class = 'ReplacementPolicy::Base'
     cxx_header = "mem/cache/replacement_policies/base.hh"
 
 class FIFORP(BaseReplacementPolicy):
     type = 'FIFORP'
-    cxx_class = 'FIFORP'
+    cxx_class = 'ReplacementPolicy::FIFO'
     cxx_header = "mem/cache/replacement_policies/fifo_rp.hh"
 
 class SecondChanceRP(FIFORP):
     type = 'SecondChanceRP'
-    cxx_class = 'SecondChanceRP'
+    cxx_class = 'ReplacementPolicy::SecondChance'
     cxx_header = "mem/cache/replacement_policies/second_chance_rp.hh"
 
 class LFURP(BaseReplacementPolicy):
     type = 'LFURP'
-    cxx_class = 'LFURP'
+    cxx_class = 'ReplacementPolicy::LFU'
     cxx_header = "mem/cache/replacement_policies/lfu_rp.hh"
 
 class LRURP(BaseReplacementPolicy):
     type = 'LRURP'
-    cxx_class = 'LRURP'
+    cxx_class = 'ReplacementPolicy::LRU'
     cxx_header = "mem/cache/replacement_policies/lru_rp.hh"
 
 class BIPRP(LRURP):
     type = 'BIPRP'
-    cxx_class = 'BIPRP'
+    cxx_class = 'ReplacementPolicy::BIP'
     cxx_header = "mem/cache/replacement_policies/bip_rp.hh"
     btp = Param.Percent(3, "Percentage of blocks to be inserted as MRU")
 
@@ -66,33 +65,38 @@ class LIPRP(BIPRP):
 
 class MRURP(BaseReplacementPolicy):
     type = 'MRURP'
-    cxx_class = 'MRURP'
+    cxx_class = 'ReplacementPolicy::MRU'
     cxx_header = "mem/cache/replacement_policies/mru_rp.hh"
 
 class RandomRP(BaseReplacementPolicy):
     type = 'RandomRP'
-    cxx_class = 'RandomRP'
+    cxx_class = 'ReplacementPolicy::Random'
     cxx_header = "mem/cache/replacement_policies/random_rp.hh"
 
 class BRRIPRP(BaseReplacementPolicy):
     type = 'BRRIPRP'
-    cxx_class = 'BRRIPRP'
+    cxx_class = 'ReplacementPolicy::BRRIP'
     cxx_header = "mem/cache/replacement_policies/brrip_rp.hh"
-    max_RRPV = Param.Int(3, "Maximum RRPV possible")
+    num_bits = Param.Int(2, "Number of bits per RRPV")
     hit_priority = Param.Bool(False,
         "Prioritize evicting blocks that havent had a hit recently")
     btp = Param.Percent(3,
         "Percentage of blocks to be inserted with long RRPV")
 
 class RRIPRP(BRRIPRP):
-    btp = 0
+    btp = 100
 
 class NRURP(BRRIPRP):
-    btp = 0
-    max_RRPV = 1
+    btp = 100
+    num_bits = 1
 
 class TreePLRURP(BaseReplacementPolicy):
     type = 'TreePLRURP'
-    cxx_class = 'TreePLRURP'
+    cxx_class = 'ReplacementPolicy::TreePLRU'
     cxx_header = "mem/cache/replacement_policies/tree_plru_rp.hh"
     num_leaves = Param.Int(Parent.assoc, "Number of leaves in each tree")
+
+class WeightedLRURP(BaseReplacementPolicy):
+    type = "WeightedLRURP"
+    cxx_class = "ReplacementPolicy::WeightedLRU"
+    cxx_header = "mem/cache/replacement_policies/weighted_lru_rp.hh"

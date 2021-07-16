@@ -35,9 +35,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Gabe Black
-//          Nilay Vaish
 
 //////////////////////////////////////////////////////////////////////////
 //
@@ -79,13 +76,16 @@ def template MicroFpOpExecute {{
 def template MicroFpOpDeclare {{
     class %(class_name)s : public %(base_class)s
     {
+      private:
+        %(reg_idx_arr_decl)s;
+
       public:
         %(class_name)s(ExtMachInst _machInst,
                 const char * instMnem, uint64_t setFlags,
                 InstRegIndex _src1, InstRegIndex _src2, InstRegIndex _dest,
                 uint8_t _dataSize, int8_t _spm);
 
-        Fault execute(ExecContext *, Trace::InstRecord *) const;
+        Fault execute(ExecContext *, Trace::InstRecord *) const override;
     };
 }};
 
@@ -98,11 +98,13 @@ def template MicroFpOpConstructor {{
                 _src1, _src2, _dest, _dataSize, _spm,
                 %(op_class)s)
     {
+        %(set_reg_idx_arr)s;
         %(constructor)s;
     }
 }};
 
 let {{
+
     # Make these empty strings so that concatenating onto
     # them will always work.
     header_output = ""
@@ -123,7 +125,7 @@ let {{
 
             # If there's something optional to do with flags, generate
             # a version without it and fix up this version to use it.
-            if flag_code is not "" or cond_check is not "true":
+            if flag_code != "" or cond_check != "true":
                 self.buildCppClasses(name, Name, suffix,
                         code, "", "true", else_code, op_class)
                 suffix = "Flags" + suffix
@@ -195,8 +197,7 @@ let {{
 
             return cls
 
-    class FpUnaryOp(X86Microop):
-        __metaclass__ = FpOpMeta
+    class FpUnaryOp(X86Microop, metaclass=FpOpMeta):
         # This class itself doesn't act as a microop
         abstract = True
 
@@ -231,8 +232,7 @@ let {{
                 "dataSize" : self.dataSize,
                 "spm" : self.spm}
 
-    class FpBinaryOp(X86Microop):
-        __metaclass__ = FpOpMeta
+    class FpBinaryOp(X86Microop, metaclass=FpOpMeta):
         # This class itself doesn't act as a microop
         abstract = True
 
@@ -380,7 +380,7 @@ let {{
 
     class PremFp(FpBinaryOp):
         code = '''
-            MiscReg new_fsw = FSW;
+            RegVal new_fsw = FSW;
             int src1_exp;
             int src2_exp;
             std::frexp(FpSrcReg1, &src1_exp);

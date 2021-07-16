@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "dev/x86/south_bridge.hh"
@@ -36,18 +34,12 @@
 
 using namespace X86ISA;
 
-SouthBridge::SouthBridge(const Params *p) : SimObject(p),
-    platform(p->platform), pit(p->pit), pic1(p->pic1), pic2(p->pic2),
-    cmos(p->cmos), speaker(p->speaker), ioApic(p->io_apic)
+SouthBridge::SouthBridge(const Params &p) : SimObject(p),
+    platform(p.platform), pit(p.pit), pic1(p.pic1), pic2(p.pic2),
+    cmos(p.cmos), speaker(p.speaker), ioApic(p.io_apic)
 {
     // Let the platform know where we are
     Pc * pc = dynamic_cast<Pc *>(platform);
     assert(pc);
     pc->southBridge = this;
-}
-
-SouthBridge *
-SouthBridgeParams::create()
-{
-    return new SouthBridge(this);
 }

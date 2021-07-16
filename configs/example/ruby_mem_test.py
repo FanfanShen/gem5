@@ -24,11 +24,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Ron Dreslinski
-#          Brad Beckmann
-
-from __future__ import print_function
 
 import m5
 from m5.objects import *
@@ -57,15 +52,13 @@ parser.add_option("--progress", type="int", default=1000,
 parser.add_option("--num-dmas", type="int", default=0, help="# of dma testers")
 parser.add_option("--functional", type="int", default=0,
                   help="percentage of accesses that should be functional")
-parser.add_option("--suppress-func-warnings", action="store_true",
-                  help="suppress warnings when functional accesses fail")
+parser.add_option("--suppress-func-errors", action="store_true",
+                  help="suppress panic when functional accesses fail")
 
 #
 # Add the ruby specific and protocol specific options
 #
 Ruby.define_options(parser)
-
-execfile(os.path.join(config_root, "common", "Options.py"))
 
 (options, args) = parser.parse_args()
 
@@ -100,8 +93,8 @@ cpus = [ MemTest(max_loads = options.maxloads,
                  percent_functional = options.functional,
                  percent_uncacheable = 0,
                  progress_interval = options.progress,
-                 suppress_func_warnings = options.suppress_func_warnings) \
-         for i in xrange(options.num_cpus) ]
+                 suppress_func_errors = options.suppress_func_errors) \
+         for i in range(options.num_cpus) ]
 
 system = System(cpu = cpus,
                 clk_domain = SrcClockDomain(clock = options.sys_clock),
@@ -112,9 +105,9 @@ if options.num_dmas > 0:
                      percent_functional = 0,
                      percent_uncacheable = 0,
                      progress_interval = options.progress,
-                     suppress_func_warnings =
-                                        not options.suppress_func_warnings) \
-             for i in xrange(options.num_dmas) ]
+                     suppress_func_errors =
+                                        not options.suppress_func_errors) \
+             for i in range(options.num_dmas) ]
     system.dma_devices = dmas
 else:
     dmas = []

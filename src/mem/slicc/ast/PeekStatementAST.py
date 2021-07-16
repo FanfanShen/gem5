@@ -42,7 +42,7 @@ class PeekStatementAST(StatementAST):
         return "[PeekStatementAST: %r queue_name: %r type: %r %r]" % \
                (self.method, self.queue_name, self.type_ast, self.statements)
 
-    def generate(self, code, return_type):
+    def generate(self, code, return_type, **kwargs):
         self.symtab.pushFrame()
 
         msg_type = self.type_ast.type
@@ -61,7 +61,7 @@ class PeekStatementAST(StatementAST):
         code('''
 {
     // Declare message
-    const $mtid* in_msg_ptr M5_VAR_USED;
+    M5_VAR_USED const $mtid* in_msg_ptr;
     in_msg_ptr = dynamic_cast<const $mtid *>(($qcode).${{self.method}}());
     if (in_msg_ptr == NULL) {
         // If the cast fails, this is the wrong inport (wrong message type).
@@ -71,7 +71,7 @@ class PeekStatementAST(StatementAST):
     }
 ''')
 
-        if self.pairs.has_key("block_on"):
+        if "block_on" in self.pairs:
             address_field = self.pairs['block_on']
             code('''
     if (m_is_blocking &&
@@ -82,7 +82,7 @@ class PeekStatementAST(StatementAST):
     }
             ''')
 
-        if self.pairs.has_key("wake_up"):
+        if "wake_up" in self.pairs:
             address_field = self.pairs['wake_up']
             code('''
     if (m_waiting_buffers.count(in_msg_ptr->m_$address_field) > 0) {
@@ -91,7 +91,7 @@ class PeekStatementAST(StatementAST):
             ''')
 
         # The other statements
-        self.statements.generate(code, return_type)
+        self.statements.generate(code, return_type, **kwargs)
         self.symtab.popFrame()
         code("}")
 

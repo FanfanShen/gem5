@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited
+ * Copyright (c) 2017-2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,15 +33,17 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Travaglini
  */
 
 #include "arch/arm/tracers/tarmac_record_v8.hh"
 
+#include <memory>
+
 #include "arch/arm/insts/static_inst.hh"
-#include "arch/arm/tlb.hh"
+#include "arch/arm/mmu.hh"
 #include "arch/arm/tracers/tarmac_tracer.hh"
+
+using namespace ArmISA;
 
 namespace Trace {
 
@@ -56,8 +58,9 @@ TarmacTracerRecordV8::TraceInstEntryV8::TraceInstEntryV8(
     const auto thread = tarmCtx.thread;
 
     // Evaluate physical address
-    TheISA::TLB* dtb = static_cast<TLB*>(thread->getDTBPtr());
-    paddrValid = dtb->translateFunctional(thread, addr, paddr);
+    auto mmu = static_cast<ArmISA::MMU*>(thread->getMMUPtr());
+    paddrValid = mmu->translateFunctional(
+        thread, addr, paddr);
 }
 
 TarmacTracerRecordV8::TraceMemEntryV8::TraceMemEntryV8(
@@ -70,8 +73,8 @@ TarmacTracerRecordV8::TraceMemEntryV8::TraceMemEntryV8(
     const auto thread = tarmCtx.thread;
 
     // Evaluate physical address
-    TheISA::TLB* dtb = static_cast<TLB*>(thread->getDTBPtr());
-    dtb->translateFunctional(thread, addr, paddr);
+    auto mmu = static_cast<ArmISA::MMU*>(thread->getMMUPtr());
+    mmu->translateFunctional(thread, addr, paddr);
 }
 
 TarmacTracerRecordV8::TraceRegEntryV8::TraceRegEntryV8(
@@ -126,13 +129,66 @@ TarmacTracerRecordV8::TraceRegEntryV8::updateMisc(
 }
 
 void
+TarmacTracerRecordV8::TraceRegEntryV8::updateVec(
+    const TarmacContext& tarmCtx,
+    RegIndex regRelIdx
+)
+{
+    auto thread = tarmCtx.thread;
+    const auto& vec_container = thread->readVecReg(
+        RegId(regClass, regRelIdx));
+    auto vv = vec_container.as<VecElem>();
+
+    regWidth = ArmStaticInst::getCurSveVecLenInBits(thread);
+    auto num_elements = regWidth / (sizeof(VecElem) * 8);
+
+    // Resize vector of values
+    values.resize(num_elements);
+
+    for (auto i = 0; i < num_elements; i++) {
+        values[i] = vv[i];
+    }
+
+    regValid = true;
+    regName = "Z" + std::to_string(regRelIdx);
+}
+
+void
+TarmacTracerRecordV8::TraceRegEntryV8::updatePred(
+    const TarmacContext& tarmCtx,
+    RegIndex regRelIdx
+)
+{
+    auto thread = tarmCtx.thread;
+    const auto& pred_container = thread->readVecPredReg(
+        RegId(regClass, regRelIdx));
+
+    // Predicate registers are always 1/8 the size of related vector
+    // registers. (getCurSveVecLenInBits(thread) / 8)
+    regWidth = ArmStaticInst::getCurSveVecLenInBits(thread) / 8;
+    auto num_elements = regWidth / 16;
+
+    // Resize vector of values
+    values.resize(num_elements);
+
+    // Get a copy of pred_container as a vector of half-words
+    auto vv = pred_container.as<uint16_t>();
+    for (auto i = 0; i < num_elements; i++) {
+        values[i] = vv[i];
+    }
+
+    regValid = true;
+    regName = "P" + std::to_string(regRelIdx);
+}
+
+void
 TarmacTracerRecordV8::addInstEntry(std::vector<InstPtr>& queue,
                                    const TarmacContext& tarmCtx)
 {
     // Generate an instruction entry in the record and
     // add it to the Instruction Queue
     queue.push_back(
-        m5::make_unique<TraceInstEntryV8>(tarmCtx, predicate)
+        std::make_unique<TraceInstEntryV8>(tarmCtx, predicate)
     );
 }
 
@@ -145,9 +201,9 @@ TarmacTracerRecordV8::addMemEntry(std::vector<MemPtr>& queue,
     // Memory Queue
     if (getMemValid()) {
         queue.push_back(
-            m5::make_unique<TraceMemEntryV8>(tarmCtx,
-                                             static_cast<uint8_t>(getSize()),
-                                             getAddr(), getIntData())
+            std::make_unique<TraceMemEntryV8>(tarmCtx,
+                                              static_cast<uint8_t>(getSize()),
+                                              getAddr(), getIntData())
         );
     }
 }
@@ -167,9 +223,7 @@ TarmacTracerRecordV8::addRegEntry(std::vector<RegPtr>& queue,
 
         // Copying the entry and adding it to the "list"
         // of entries to be dumped to trace.
-        queue.push_back(
-            m5::make_unique<TraceRegEntryV8>(single_reg)
-        );
+        queue.push_back(std::make_unique<TraceRegEntryV8>(single_reg));
     }
 
     // Gem5 is treating CPSR flags as separate registers (CC registers),
@@ -236,12 +290,35 @@ TarmacTracerRecordV8::TraceRegEntryV8::print(
     // Print the register record formatted according
     // to the Tarmac specification
     if (regValid) {
-        ccprintf(outs, "%s clk %s R %s %0*x\n",
+        ccprintf(outs, "%s clk %s R %s %s\n",
                  curTick(),            /* Tick time */
                  cpuName,              /* Cpu name */
                  regName,              /* Register name */
-                 regWidth >> 2,        /* Register value padding */
-                 valueLo);             /* Register value */
+                 formatReg());         /* Register value */
+    }
+}
+
+std::string
+TarmacTracerRecordV8::TraceRegEntryV8::formatReg() const
+{
+    if (regWidth <= 64) {
+        // Register width is < 64 bit (scalar register).
+        return csprintf("%0*x", regWidth / 4, values[Lo]);
+    } else {
+
+        // Register width is > 64 bit (vector).  Iterate over every vector
+        // element. Since the vector values are stored in Little Endian, print
+        // starting from the last element.
+        std::string reg_val;
+        for (auto it = values.rbegin(); it != values.rend(); it++) {
+            reg_val += csprintf("%0*x_",
+                static_cast<int>(sizeof(VecElem) * 2), *it);
+        }
+
+        // Remove trailing underscore
+        reg_val.pop_back();
+
+        return reg_val;
     }
 }
 

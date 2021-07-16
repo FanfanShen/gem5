@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 /** @file
@@ -50,17 +48,13 @@
 #include <string>
 #include <vector>
 
-#include "config/the_isa.hh"
 #include "cpu/intr_control.hh"
 #include "dev/arm/base_gic.hh"
 #include "sim/system.hh"
 
-using namespace std;
-using namespace TheISA;
 
-
-RealView::RealView(const Params *p)
-    : Platform(p), system(p->system), gic(nullptr)
+RealView::RealView(const Params &p)
+    : Platform(p), system(p.system), gic(nullptr)
 {}
 
 void
@@ -87,10 +81,4 @@ void
 RealView::clearPciInt(int line)
 {
     gic->clearInt(line);
-}
-
-RealView *
-RealViewParams::create()
-{
-    return new RealView(this);
 }

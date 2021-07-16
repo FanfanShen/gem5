@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011,2017-2018 ARM Limited
+ * Copyright (c) 2011,2017-2019 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Giacomo Gabrielli
  */
 
 /**
@@ -83,7 +81,7 @@ class TarmacParserRecord : public TarmacBaseRecord
         /** Current instruction. */
         const StaticInstPtr inst;
         /** PC of the current instruction. */
-        TheISA::PCState pc;
+        ArmISA::PCState pc;
         /** True if a mismatch has been detected for this instruction. */
         bool mismatch;
         /**
@@ -95,7 +93,7 @@ class TarmacParserRecord : public TarmacBaseRecord
         TarmacParserRecordEvent(TarmacParser& _parent,
                                 ThreadContext *_thread,
                                 const StaticInstPtr _inst,
-                                TheISA::PCState _pc,
+                                ArmISA::PCState _pc,
                                 bool _mismatch,
                                 bool _mismatch_on_pc_or_opcode) :
             parent(_parent), thread(_thread), inst(_inst), pc(_pc),
@@ -130,10 +128,10 @@ class TarmacParserRecord : public TarmacBaseRecord
      * by gem5.
      */
     static void printMismatchHeader(const StaticInstPtr inst,
-                                    TheISA::PCState pc);
+                                    ArmISA::PCState pc);
 
     TarmacParserRecord(Tick _when, ThreadContext *_thread,
-                       const StaticInstPtr _staticInst, TheISA::PCState _pc,
+                       const StaticInstPtr _staticInst, ArmISA::PCState _pc,
                        TarmacParser& _parent,
                        const StaticInstPtr _macroStaticInst = NULL);
 
@@ -199,6 +197,9 @@ class TarmacParserRecord : public TarmacBaseRecord
     /** Request for memory write checks. */
     RequestPtr memReq;
 
+    /** Max. vector length (SVE). */
+    static int8_t maxVectorLength;
+
   protected:
     TarmacParser& parent;
 };
@@ -215,17 +216,17 @@ class TarmacParser : public InstTracer
   public:
     typedef TarmacParserParams Params;
 
-    TarmacParser(const Params *p) : InstTracer(p), startPc(p->start_pc),
-                                    exitOnDiff(p->exit_on_diff),
-                                    exitOnInsnDiff(p->exit_on_insn_diff),
-                                    memWrCheck(p->mem_wr_check),
-                                    ignoredAddrRange(p->ignore_mem_addr),
-                                    cpuId(p->cpu_id),
+    TarmacParser(const Params &p) : InstTracer(p), startPc(p.start_pc),
+                                    exitOnDiff(p.exit_on_diff),
+                                    exitOnInsnDiff(p.exit_on_insn_diff),
+                                    memWrCheck(p.mem_wr_check),
+                                    ignoredAddrRange(p.ignore_mem_addr),
+                                    cpuId(p.cpu_id),
                                     macroopInProgress(false)
     {
         assert(!(exitOnDiff && exitOnInsnDiff));
 
-        trace.open(p->path_to_trace.c_str());
+        trace.open(p.path_to_trace.c_str());
         if (startPc == 0x0) {
             started = true;
         } else {
@@ -241,7 +242,7 @@ class TarmacParser : public InstTracer
 
     InstRecord *
     getInstRecord(Tick when, ThreadContext *tc, const StaticInstPtr staticInst,
-                  TheISA::PCState pc,
+                  ArmISA::PCState pc,
                   const StaticInstPtr macroStaticInst = NULL)
     {
         if (!started && pc.pc() == startPc)

@@ -34,11 +34,17 @@
 #define __ARCH_ARM_FREEBSD_FREEBSD_HH__
 
 #include "kern/freebsd/freebsd.hh"
+#include "sim/byteswap.hh"
 
-class ArmFreebsd32 : public FreeBSD
+class ArmFreebsd : public FreeBSD
 {
   public:
+    static const ByteOrder byteOrder = ByteOrder::little;
+};
 
+class ArmFreebsd32 : public ArmFreebsd
+{
+  public:
     /// This table maps the target open() flags to the corresponding
     /// host open() flags.
     static SyscallFlagTransTable openFlagTable[];
@@ -192,7 +198,7 @@ class ArmFreebsd32 : public FreeBSD
     };
 };
 
-class ArmFreebsd64 : public FreeBSD
+class ArmFreebsd64 : public ArmFreebsd
 {
   public:
 

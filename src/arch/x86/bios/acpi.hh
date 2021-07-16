@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_X86_BIOS_ACPI_HH__
@@ -78,7 +76,7 @@ class RSDP : public SimObject
     XSDT * xsdt;
 
   public:
-    RSDP(Params *p);
+    RSDP(const Params &p);
 };
 
 class SysDescTable : public SimObject
@@ -97,7 +95,7 @@ class SysDescTable : public SimObject
     uint32_t creatorRevision;
 
   public:
-    SysDescTable(Params *p, const char * _signature, uint8_t _revision);
+    SysDescTable(const Params &p, const char * _signature, uint8_t _revision);
 };
 
 class RSDT : public SysDescTable
@@ -108,7 +106,7 @@ class RSDT : public SysDescTable
     std::vector<SysDescTable *> entries;
 
   public:
-    RSDT(Params *p);
+    RSDT(const Params &p);
 };
 
 class XSDT : public SysDescTable
@@ -119,7 +117,7 @@ class XSDT : public SysDescTable
     std::vector<SysDescTable *> entries;
 
   public:
-    XSDT(Params *p);
+    XSDT(const Params &p);
 };
 
 } // namespace ACPI

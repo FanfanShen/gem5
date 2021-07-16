@@ -1,4 +1,4 @@
-# Copyright (c) 2017 ARM Limited
+# Copyright (c) 2017,2019,2020 ARM Limited
 # All rights reserved.
 #
 # The license below extends only to copyright in the software and shall
@@ -35,15 +35,12 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Steve Reinhardt
-#          Brad Beckmann
 
 from m5.params import *
 from m5.proxy import *
-from MemObject import MemObject
+from m5.objects.ClockedObject import ClockedObject
 
-class RubyController(MemObject):
+class RubyController(ClockedObject):
     type = 'RubyController'
     cxx_class = 'AbstractController'
     cxx_header = "mem/ruby/slicc_interface/AbstractController.hh"
@@ -61,5 +58,21 @@ class RubyController(MemObject):
     number_of_TBEs = Param.Int(256, "")
     ruby_system = Param.RubySystem("")
 
-    memory = MasterPort("Port for attaching a memory controller")
+    # This is typically a proxy to the icache/dcache hit latency.
+    # If the latency depends on the request type or protocol-specific states,
+    # the protocol may ignore this parameter by overriding the
+    # mandatoryQueueLatency function
+    mandatory_queue_latency = \
+        Param.Cycles(1, "Default latency for requests added to the " \
+                        "mandatory queue on top-level controllers")
+
+    memory_out_port = RequestPort("Port for attaching a memory controller")
+    memory = DeprecatedParam(memory_out_port, "The request port for Ruby "
+        "memory output to the main memory is now called `memory_out_port`")
+
     system = Param.System(Parent.any, "system object parameter")
+
+    # These can be used by a protocol to enable reuse of the same machine
+    # types to model different levels of the cache hierarchy
+    downstream_destinations = VectorParam.RubyController([],
+                    "Possible destinations for requests sent towards memory")

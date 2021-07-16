@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_X86_UTILITY_HH__
@@ -55,49 +53,15 @@ namespace X86ISA
         return retPC;
     }
 
-    uint64_t
-    getArgument(ThreadContext *tc, int &number, uint16_t size, bool fp);
-
-    static inline bool
-    inUserMode(ThreadContext *tc)
-    {
-        if (!FullSystem) {
-            return true;
-        } else {
-            HandyM5Reg m5reg = tc->readMiscRegNoEffect(MISCREG_M5_REG);
-            return m5reg.cpl == 3;
-        }
-    }
-
-    /**
-     * Function to insure ISA semantics about 0 registers.
-     * @param tc The thread context.
-     */
-    template <class TC>
-    void zeroRegisters(TC *tc);
-
-    void initCPU(ThreadContext *tc, int cpuId);
-
-    void startupCPU(ThreadContext *tc, int cpuId);
-
     void copyRegs(ThreadContext *src, ThreadContext *dest);
 
     void copyMiscRegs(ThreadContext *src, ThreadContext *dest);
-
-    void skipFunction(ThreadContext *tc);
 
     inline void
     advancePC(PCState &pc, const StaticInstPtr &inst)
     {
         inst->advancePC(pc);
     }
-
-    inline uint64_t
-    getExecutingAsid(ThreadContext *tc)
-    {
-        return 0;
-    }
-
 
     /**
      * Reconstruct the rflags register from the internal gem5 register
@@ -127,13 +91,6 @@ namespace X86ISA
      * @param val New rflags value to store in TC
      */
     void setRFlags(ThreadContext *tc, uint64_t val);
-
-    /**
-     * Extract the bit string representing a double value.
-     */
-    inline uint64_t getDoubleBits(double val) {
-        return *(uint64_t *)(&val);
-    }
 
     /**
      * Convert an x87 tag word to abridged tag format.

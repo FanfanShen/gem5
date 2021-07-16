@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #include "cpu/o3/fu_pool.hh"
@@ -45,8 +43,6 @@
 #include <sstream>
 
 #include "cpu/func_unit.hh"
-
-using namespace std;
 
 ////////////////////////////////////////////////////////////////////////////
 //
@@ -81,7 +77,7 @@ FUPool::~FUPool()
 
 
 // Constructor
-FUPool::FUPool(const Params *p)
+FUPool::FUPool(const Params &p)
     : SimObject(p)
 {
     numFU = 0;
@@ -94,7 +90,7 @@ FUPool::FUPool(const Params *p)
     //
     //  Iterate through the list of FUDescData structures
     //
-    const vector<FUDesc *> &paramList =  p->FUList;
+    const std::vector<FUDesc *> &paramList =  p.FUList;
     for (FUDDiterator i = paramList.begin(); i != paramList.end(); ++i) {
 
         //
@@ -138,7 +134,7 @@ FUPool::FUPool(const Params *p)
             funcUnits.push_back(fu);
 
             for (int c = 1; c < (*i)->number; ++c) {
-                ostringstream s;
+                std::ostringstream s;
                 numFU++;
                 FuncUnit *fu2 = new FuncUnit(*fu);
 
@@ -207,34 +203,34 @@ FUPool::processFreeUnits()
 void
 FUPool::dump()
 {
-    cout << "Function Unit Pool (" << name() << ")\n";
-    cout << "======================================\n";
-    cout << "Free List:\n";
+    std::cout << "Function Unit Pool (" << name() << ")\n";
+    std::cout << "======================================\n";
+    std::cout << "Free List:\n";
 
     for (int i = 0; i < numFU; ++i) {
         if (unitBusy[i]) {
             continue;
         }
 
-        cout << "  [" << i << "] : ";
+        std::cout << "  [" << i << "] : ";
 
-        cout << funcUnits[i]->name << " ";
+        std::cout << funcUnits[i]->name << " ";
 
-        cout << "\n";
+        std::cout << "\n";
     }
 
-    cout << "======================================\n";
-    cout << "Busy List:\n";
+    std::cout << "======================================\n";
+    std::cout << "Busy List:\n";
     for (int i = 0; i < numFU; ++i) {
         if (!unitBusy[i]) {
             continue;
         }
 
-        cout << "  [" << i << "] : ";
+        std::cout << "  [" << i << "] : ";
 
-        cout << funcUnits[i]->name << " ";
+        std::cout << funcUnits[i]->name << " ";
 
-        cout << "\n";
+        std::cout << "\n";
     }
 }
 
@@ -246,25 +242,4 @@ FUPool::isDrained() const
         is_drained = is_drained && !unitBusy[i];
 
     return is_drained;
-}
-
-//
-
-////////////////////////////////////////////////////////////////////////////
-//
-//  The SimObjects we use to get the FU information into the simulator
-//
-////////////////////////////////////////////////////////////////////////////
-
-//
-//    FUPool - Contails a list of FUDesc objects to make available
-//
-
-//
-//  The FuPool object
-//
-FUPool *
-FUPoolParams::create()
-{
-    return new FUPool(this);
 }

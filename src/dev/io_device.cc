@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Nathan Binkert
  */
 
 #include "dev/io_device.hh"
@@ -47,32 +44,8 @@
 #include "debug/AddrRanges.hh"
 #include "sim/system.hh"
 
-PioPort::PioPort(PioDevice *dev)
-    : SimpleTimingPort(dev->name() + ".pio", dev), device(dev)
-{
-}
-
-Tick
-PioPort::recvAtomic(PacketPtr pkt)
-{
-    // technically the packet only reaches us after the header delay,
-    // and typically we also need to deserialise any payload
-    Tick receive_delay = pkt->headerDelay + pkt->payloadDelay;
-    pkt->headerDelay = pkt->payloadDelay = 0;
-
-    const Tick delay(pkt->isRead() ? device->read(pkt) : device->write(pkt));
-    assert(pkt->isResponse() || pkt->isError());
-    return delay + receive_delay;
-}
-
-AddrRangeList
-PioPort::getAddrRanges() const
-{
-    return device->getAddrRanges();
-}
-
-PioDevice::PioDevice(const Params *p)
-    : MemObject(p), sys(p->system), pioPort(this)
+PioDevice::PioDevice(const Params &p)
+    : ClockedObject(p), sys(p.system), pioPort(this)
 {}
 
 PioDevice::~PioDevice()
@@ -87,18 +60,18 @@ PioDevice::init()
     pioPort.sendRangeChange();
 }
 
-BaseSlavePort &
-PioDevice::getSlavePort(const std::string &if_name, PortID idx)
+Port &
+PioDevice::getPort(const std::string &if_name, PortID idx)
 {
     if (if_name == "pio") {
         return pioPort;
     }
-    return MemObject::getSlavePort(if_name, idx);
+    return ClockedObject::getPort(if_name, idx);
 }
 
-BasicPioDevice::BasicPioDevice(const Params *p, Addr size)
-    : PioDevice(p), pioAddr(p->pio_addr), pioSize(size),
-      pioDelay(p->pio_latency)
+BasicPioDevice::BasicPioDevice(const Params &p, Addr size)
+    : PioDevice(p), pioAddr(p.pio_addr), pioSize(size),
+      pioDelay(p.pio_latency)
 {}
 
 AddrRangeList

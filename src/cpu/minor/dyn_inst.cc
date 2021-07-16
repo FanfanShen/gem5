@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014, 2016 ARM Limited
+ * Copyright (c) 2013-2014, 2016,2018 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 #include "cpu/minor/dyn_inst.hh"
@@ -81,7 +79,7 @@ void
 MinorDynInst::init()
 {
     if (!bubbleInst) {
-        bubbleInst = new MinorDynInst();
+        bubbleInst = new MinorDynInst(StaticInst::nullStaticInstPtr);
         assert(bubbleInst->isBubble());
         /* Make bubbleInst immortal */
         bubbleInst->incref();
@@ -108,6 +106,8 @@ MinorDynInst::reportData(std::ostream &os) const
         os << "-";
     else if (isFault())
         os << "F;" << id;
+    else if (translationFault != NoFault)
+        os << "TF;" << id;
     else
         os << id;
 }
@@ -120,6 +120,8 @@ operator <<(std::ostream &os, const MinorDynInst &inst)
 
     if (inst.isFault())
         os << "fault: \"" << inst.fault->name() << '"';
+    else if (inst.translationFault != NoFault)
+        os << "translation fault: \"" << inst.translationFault->name() << '"';
     else if (inst.staticInst)
         os << inst.staticInst->getName();
     else
@@ -212,10 +214,7 @@ MinorDynInst::minorTraceInst(const Named &named_object) const
                     regs_str << ',';
             }
 
-#if THE_ISA == ARM_ISA
-            regs_str << " extMachInst=" << std::hex << std::setw(16)
-                << std::setfill('0') << staticInst->machInst << std::dec;
-#endif
+            ccprintf(regs_str, " extMachInst=%160x", staticInst->getEMI());
         }
 
         std::ostringstream flags;

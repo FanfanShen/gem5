@@ -29,14 +29,13 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Brandon Potter
  */
 
 #ifndef __FD_ARRAY_HH__
 #define __FD_ARRAY_HH__
 
 #include <array>
+#include <map>
 #include <memory>
 #include <string>
 

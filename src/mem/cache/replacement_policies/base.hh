@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2018 Inria
+ * Copyright (c) 2018-2020 Inria
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 #ifndef __MEM_CACHE_REPLACEMENT_POLICIES_BASE_HH__
@@ -42,26 +40,17 @@
  */
 typedef std::vector<ReplaceableEntry*> ReplacementCandidates;
 
+namespace ReplacementPolicy {
+
 /**
  * A common base class of cache replacement policy objects.
  */
-class BaseReplacementPolicy : public SimObject
+class Base : public SimObject
 {
   public:
-    /**
-      * Convenience typedef.
-      */
     typedef BaseReplacementPolicyParams Params;
-
-    /**
-     * Construct and initiliaze this replacement policy.
-     */
-    BaseReplacementPolicy(const Params *p) : SimObject(p) {}
-
-    /**
-     * Destructor.
-     */
-    virtual ~BaseReplacementPolicy() {}
+    Base(const Params &p) : SimObject(p) {}
+    virtual ~Base() = default;
 
     /**
      * Invalidate replacement data to set it as the next probable victim.
@@ -103,5 +92,7 @@ class BaseReplacementPolicy : public SimObject
      */
     virtual std::shared_ptr<ReplacementData> instantiateEntry() = 0;
 };
+
+} // namespace ReplacementPolicy
 
 #endif // __MEM_CACHE_REPLACEMENT_POLICIES_BASE_HH__

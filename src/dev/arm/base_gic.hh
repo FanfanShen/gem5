@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 /** @file
@@ -46,7 +44,10 @@
 
 #include <unordered_map>
 
+#include "arch/arm/system.hh"
 #include "dev/io_device.hh"
+
+#include "enums/ArmInterruptType.hh"
 
 class Platform;
 class RealView;
@@ -64,11 +65,13 @@ class BaseGic :  public PioDevice
 {
   public:
     typedef BaseGicParams Params;
+    enum class GicVersion { GIC_V2, GIC_V3, GIC_V4 };
 
-    BaseGic(const Params *p);
+    BaseGic(const Params &p);
     virtual ~BaseGic();
+    void init() override;
 
-    const Params * params() const;
+    const Params &params() const;
 
     /**
      * Post an interrupt from a device that is connected to the GIC.
@@ -99,6 +102,15 @@ class BaseGic :  public PioDevice
      */
     virtual void clearInt(uint32_t num) = 0;
 
+    ArmSystem *
+    getSystem() const
+    {
+        return (ArmSystem *) sys;
+    }
+
+    /** Check if version supported */
+    virtual bool supportsVersion(GicVersion version) = 0;
+
   protected:
     /** Platform this GIC belongs to. */
     Platform *platform;
@@ -125,7 +137,7 @@ class BaseGicRegisters
 class ArmInterruptPinGen : public SimObject
 {
   public:
-    ArmInterruptPinGen(const ArmInterruptPinParams *p);
+    ArmInterruptPinGen(const ArmInterruptPinParams &p);
 
     virtual ArmInterruptPin* get(ThreadContext *tc = nullptr) = 0;
 };
@@ -138,7 +150,7 @@ class ArmInterruptPinGen : public SimObject
 class ArmSPIGen : public ArmInterruptPinGen
 {
   public:
-    ArmSPIGen(const ArmSPIParams *p);
+    ArmSPIGen(const ArmSPIParams &p);
 
     ArmInterruptPin* get(ThreadContext *tc = nullptr) override;
   protected:
@@ -153,7 +165,8 @@ class ArmSPIGen : public ArmInterruptPinGen
 class ArmPPIGen : public ArmInterruptPinGen
 {
   public:
-    ArmPPIGen(const ArmPPIParams *p);
+    PARAMS(ArmPPI);
+    ArmPPIGen(const Params &p);
 
     ArmInterruptPin* get(ThreadContext* tc = nullptr) override;
   protected:
@@ -163,12 +176,11 @@ class ArmPPIGen : public ArmInterruptPinGen
 /**
  * Generic representation of an Arm interrupt pin.
  */
-class ArmInterruptPin
+class ArmInterruptPin : public Serializable
 {
     friend class ArmInterruptPinGen;
   protected:
-    ArmInterruptPin(Platform *platform, ThreadContext *tc,
-                    uint32_t int_num);
+    ArmInterruptPin(const ArmInterruptPinParams &p, ThreadContext *tc);
 
   public: /* Public interface */
     /**
@@ -183,10 +195,17 @@ class ArmInterruptPin
     /** Get interrupt number */
     uint32_t num() const { return intNum; }
 
+    /** True if interrupt pin is active, false otherwise */
+    bool active() const { return _active; }
+
     /** Signal an interrupt */
     virtual void raise() = 0;
     /** Clear a signalled interrupt */
     virtual void clear() = 0;
+
+  public: /* Serializable interface */
+    void serialize(CheckpointOut &cp) const override;
+    void unserialize(CheckpointIn &cp) override;
 
   protected:
     /**
@@ -208,13 +227,19 @@ class ArmInterruptPin
 
     /** Interrupt number to generate */
     const uint32_t intNum;
+
+    /** Interrupt triggering type */
+    const ArmInterruptType triggerType;
+
+    /** True if interrupt pin is active, false otherwise */
+    bool _active;
 };
 
 class ArmSPI : public ArmInterruptPin
 {
     friend class ArmSPIGen;
   private:
-    ArmSPI(Platform *platform, uint32_t int_num);
+    ArmSPI(const ArmSPIParams &p);
 
   public:
     void raise() override;
@@ -225,7 +250,7 @@ class ArmPPI : public ArmInterruptPin
 {
     friend class ArmPPIGen;
   private:
-    ArmPPI(Platform *platform, ThreadContext *tc, uint32_t int_num);
+    ArmPPI(const ArmPPIParams &p, ThreadContext *tc);
 
   public:
     void raise() override;

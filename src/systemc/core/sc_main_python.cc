@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 // This should be on top since it is including python headers
@@ -96,7 +94,7 @@ sc_main_result_str()
 struct InstallScMain : public ::sc_gem5::PythonInitFunc
 {
     void
-    run(pybind11::module &systemc) override
+    run(pybind11::module_ &systemc) override
     {
         systemc.def("sc_main", &sc_main);
         systemc.def("sc_main_result_code", &sc_main_result_code);

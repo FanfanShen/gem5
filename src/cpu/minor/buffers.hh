@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 /**
@@ -49,8 +47,10 @@
 #include <iostream>
 #include <queue>
 #include <sstream>
+#include <string>
 
 #include "base/logging.hh"
+#include "base/types.hh"
 #include "cpu/activity.hh"
 #include "cpu/minor/trace.hh"
 #include "cpu/timebuf.hh"

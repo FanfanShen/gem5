@@ -1,4 +1,4 @@
-# Copyright (c) 2018 ARM Limited
+# Copyright (c) 2018-2020 ARM Limited
 # All rights reserved.
 #
 # The license below extends only to copyright in the software and shall
@@ -32,12 +32,11 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Andreas Sandberg
 
 from m5.defines import buildEnv
 from m5.SimObject import *
-from BaseTrafficGen import *
+
+from m5.objects.BaseTrafficGen import *
 
 class PyTrafficGen(BaseTrafficGen):
     type = 'PyTrafficGen'
@@ -59,6 +58,9 @@ class PyTrafficGen(BaseTrafficGen):
         PyBindMethod("createRandom"),
         PyBindMethod("createDram"),
         PyBindMethod("createDramRot"),
+        PyBindMethod("createHybrid"),
+        PyBindMethod("createNvm"),
+        PyBindMethod("createStrided")
     ]
 
     @cxxMethod(override=True)

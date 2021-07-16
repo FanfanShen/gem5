@@ -33,15 +33,13 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "mem/probes/base.hh"
 
 #include "params/BaseMemProbe.hh"
 
-BaseMemProbe::BaseMemProbe(BaseMemProbeParams *p)
+BaseMemProbe::BaseMemProbe(const BaseMemProbeParams &p)
     : SimObject(p)
 {
 }
@@ -49,13 +47,12 @@ BaseMemProbe::BaseMemProbe(BaseMemProbeParams *p)
 void
 BaseMemProbe::regProbeListeners()
 {
-    const BaseMemProbeParams *p(
-        dynamic_cast<const BaseMemProbeParams *>(params()));
-    assert(p);
+    const BaseMemProbeParams &p =
+        dynamic_cast<const BaseMemProbeParams &>(params());
 
-    listeners.resize(p->manager.size());
-    for (int i = 0; i < p->manager.size(); i++) {
-        ProbeManager *const mgr(p->manager[i]->getProbeManager());
-        listeners[i].reset(new PacketListener(*this, mgr, p->probe_name));
+    listeners.resize(p.manager.size());
+    for (int i = 0; i < p.manager.size(); i++) {
+        ProbeManager *const mgr(p.manager[i]->getProbeManager());
+        listeners[i].reset(new PacketListener(*this, mgr, p.probe_name));
     }
 }

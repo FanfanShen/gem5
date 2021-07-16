@@ -32,8 +32,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Gabe Black
 
 //////////////////////////////////////////////////////////////////////////
 //
@@ -51,7 +49,7 @@ def template MicroRegOpExecute {{
             %(op_decl)s;
             %(op_rd)s;
 
-            IntReg result M5_VAR_USED;
+            M5_VAR_USED RegVal result;
 
             if(%(cond_check)s)
             {
@@ -81,7 +79,7 @@ def template MicroRegOpImmExecute {{
             %(op_decl)s;
             %(op_rd)s;
 
-            IntReg result M5_VAR_USED;
+            M5_VAR_USED RegVal result;
 
             if(%(cond_check)s)
             {
@@ -105,13 +103,22 @@ def template MicroRegOpImmExecute {{
 def template MicroRegOpDeclare {{
     class %(class_name)s : public %(base_class)s
     {
+      private:
+        %(reg_idx_arr_decl)s;
+
       public:
         %(class_name)s(ExtMachInst _machInst,
                 const char * instMnem, uint64_t setFlags,
                 InstRegIndex _src1, InstRegIndex _src2, InstRegIndex _dest,
                 uint8_t _dataSize, uint16_t _ext);
 
-        Fault execute(ExecContext *, Trace::InstRecord *) const;
+        Fault execute(ExecContext *, Trace::InstRecord *) const override;
+
+        X86ISA::PCState branchTarget(const X86ISA::PCState &branchPC) const
+        override;
+
+        /// Explicitly import the otherwise hidden branchTarget
+        using StaticInst::branchTarget;
     };
 }};
 
@@ -119,13 +126,22 @@ def template MicroRegOpImmDeclare {{
 
     class %(class_name)s : public %(base_class)s
     {
+      private:
+        %(reg_idx_arr_decl)s;
+
       public:
         %(class_name)s(ExtMachInst _machInst,
                 const char * instMnem, uint64_t setFlags,
                 InstRegIndex _src1, uint8_t _imm8, InstRegIndex _dest,
                 uint8_t _dataSize, uint16_t _ext);
 
-        Fault execute(ExecContext *, Trace::InstRecord *) const;
+        Fault execute(ExecContext *, Trace::InstRecord *) const override;
+
+        X86ISA::PCState branchTarget(const X86ISA::PCState &branchPC) const
+        override;
+
+        /// Explicitly import the otherwise hidden branchTarget
+        using StaticInst::branchTarget;
     };
 }};
 
@@ -138,8 +154,20 @@ def template MicroRegOpConstructor {{
                 _src1, _src2, _dest, _dataSize, _ext,
                 %(op_class)s)
     {
+        %(set_reg_idx_arr)s;
         %(constructor)s;
         %(cond_control_flag_init)s;
+    }
+
+    X86ISA::PCState
+    %(class_name)s::branchTarget(const X86ISA::PCState &branchPC) const
+    {
+        X86ISA::PCState pcs = branchPC;
+        DPRINTF(X86, "branchTarget PC info: %s, Immediate: %lx\n",
+                pcs, (int64_t) this->machInst.immediate);
+        pcs.npc(pcs.npc() + (int64_t) this->machInst.immediate);
+        pcs.uEnd();
+        return pcs;
     }
 }};
 
@@ -152,8 +180,20 @@ def template MicroRegOpImmConstructor {{
                 _src1, _imm8, _dest, _dataSize, _ext,
                 %(op_class)s)
     {
+        %(set_reg_idx_arr)s;
         %(constructor)s;
         %(cond_control_flag_init)s;
+    }
+
+    X86ISA::PCState
+    %(class_name)s::branchTarget(const X86ISA::PCState &branchPC) const
+    {
+        X86ISA::PCState pcs = branchPC;
+        DPRINTF(X86, "branchTarget PC info: %s, Immediate (imm8): %lx\n",
+                pcs, (int8_t)imm8);
+        pcs.npc(pcs.npc() + (int8_t)imm8);
+        pcs.uEnd();
+        return pcs;
     }
 }};
 
@@ -275,7 +315,8 @@ let {{
             # a version without it and fix up this version to use it.
             if flag_code != "" or cond_check != "true":
                 self.buildCppClasses(name, Name, suffix,
-                        code, big_code, "", "true", else_code, "", op_class)
+                        code, big_code, "", "true", else_code,
+                        "flags[IsUncondControl] = flags[IsControl];", op_class)
                 suffix = "Flags" + suffix
 
             # If psrc1 or psrc2 is used, we need to actually insert code to
@@ -375,8 +416,7 @@ let {{
             return cls
 
 
-    class RegOp(X86Microop):
-        __metaclass__ = RegOpMeta
+    class RegOp(X86Microop, metaclass=RegOpMeta):
         # This class itself doesn't act as a microop
         abstract = True
 
@@ -398,7 +438,7 @@ let {{
                 self.ext = 0
             else:
                 if not isinstance(flags, (list, tuple)):
-                    raise Exception, "flags must be a list or tuple of flags"
+                    raise Exception("flags must be a list or tuple of flags")
                 self.ext = " | ".join(flags)
                 self.className += "Flags"
 
@@ -1220,8 +1260,8 @@ let {{
 
     class Wrflags(WrRegOp):
         code = '''
-            MiscReg newFlags = psrc1 ^ op2;
-            MiscReg userFlagMask = 0xDD5;
+            RegVal newFlags = psrc1 ^ op2;
+            RegVal userFlagMask = 0xDD5;
 
             // Get only the user flags
             ccFlagBits = newFlags & ccFlagMask;
@@ -1268,8 +1308,8 @@ let {{
 
     class Rflag(RegOp):
         code = '''
-            MiscReg flagMask = 0x3F7FDD5;
-            MiscReg flags = (nccFlagBits | ccFlagBits | cfofBits | dfBit |
+            RegVal flagMask = 0x3F7FDD5;
+            RegVal flags = (nccFlagBits | ccFlagBits | cfofBits | dfBit |
                              ecfBit | ezfBit) & flagMask;
 
             int flag = bits(flags, imm8);
@@ -1278,8 +1318,8 @@ let {{
             '''
 
         big_code = '''
-            MiscReg flagMask = 0x3F7FDD5;
-            MiscReg flags = (nccFlagBits | ccFlagBits | cfofBits | dfBit |
+            RegVal flagMask = 0x3F7FDD5;
+            RegVal flags = (nccFlagBits | ccFlagBits | cfofBits | dfBit |
                              ecfBit | ezfBit) & flagMask;
 
             int flag = bits(flags, imm8);
@@ -1294,7 +1334,7 @@ let {{
 
     class Sext(RegOp):
         code = '''
-            IntReg val = psrc1;
+            RegVal val = psrc1;
             // Mask the bit position so that it wraps.
             int bitPos = op2 & (dataSize * 8 - 1);
             int sign_bit = bits(val, bitPos, bitPos);
@@ -1304,7 +1344,7 @@ let {{
             '''
 
         big_code = '''
-            IntReg val = psrc1;
+            RegVal val = psrc1;
             // Mask the bit position so that it wraps.
             int bitPos = op2 & (dataSize * 8 - 1);
             int sign_bit = bits(val, bitPos, bitPos);
@@ -1390,10 +1430,7 @@ let {{
             if (dest == 1 || (dest > 4 && dest < 8) || (dest > 8)) {
                 fault = std::make_shared<InvalidOpcode>();
             } else {
-                // There are *s in the line below so it doesn't confuse the
-                // parser. They may be unnecessary.
-                //Mis*cReg old*Val = pick(Cont*rolDest, 0, dat*aSize);
-                MiscReg newVal = psrc1;
+                RegVal newVal = psrc1;
 
                 // Check for any modifications that would cause a fault.
                 switch(dest) {
@@ -1726,5 +1763,15 @@ let {{
     class Rdxftw(RdRegOp):
         code = '''
             DestReg = X86ISA::convX87TagsToXTags(FTW);
+        '''
+
+    class Popcnt(RegOp):
+        code = 'DestReg = merge(DestReg, popCount(psrc1), dataSize);'
+        flag_code = '''
+            ccFlagBits = ccFlagBits & ~(SFBit | AFBit | ZFBit | PFBit);
+            if (findZero(dataSize * 8, SrcReg1)) {
+                ccFlagBits = ccFlagBits | ZFBit;
+            }
+            cfofBits = cfofBits & ~(OFBit | CFBit);
         '''
 }};

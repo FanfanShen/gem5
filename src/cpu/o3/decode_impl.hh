@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #ifndef __CPU_O3_DECODE_IMPL_HH__
@@ -59,14 +57,15 @@
 using std::list;
 
 template<class Impl>
-DefaultDecode<Impl>::DefaultDecode(O3CPU *_cpu, DerivO3CPUParams *params)
+DefaultDecode<Impl>::DefaultDecode(O3CPU *_cpu, const DerivO3CPUParams &params)
     : cpu(_cpu),
-      renameToDecodeDelay(params->renameToDecodeDelay),
-      iewToDecodeDelay(params->iewToDecodeDelay),
-      commitToDecodeDelay(params->commitToDecodeDelay),
-      fetchToDecodeDelay(params->fetchToDecodeDelay),
-      decodeWidth(params->decodeWidth),
-      numThreads(params->numThreads)
+      renameToDecodeDelay(params.renameToDecodeDelay),
+      iewToDecodeDelay(params.iewToDecodeDelay),
+      commitToDecodeDelay(params.commitToDecodeDelay),
+      fetchToDecodeDelay(params.fetchToDecodeDelay),
+      decodeWidth(params.decodeWidth),
+      numThreads(params.numThreads),
+      stats(_cpu)
 {
     if (decodeWidth > Impl::MaxWidth)
         fatal("decodeWidth (%d) is larger than compiled limit (%d),\n"
@@ -74,7 +73,7 @@ DefaultDecode<Impl>::DefaultDecode(O3CPU *_cpu, DerivO3CPUParams *params)
              decodeWidth, static_cast<int>(Impl::MaxWidth));
 
     // @todo: Make into a parameter
-    skidBufferMax = (fetchToDecodeDelay + 1) *  params->fetchWidth;
+    skidBufferMax = (fetchToDecodeDelay + 1) *  params.fetchWidth;
     for (int tid = 0; tid < Impl::MaxThreads; tid++) {
         stalls[tid] = {false};
         decodeStatus[tid] = Idle;
@@ -89,6 +88,14 @@ void
 DefaultDecode<Impl>::startupStage()
 {
     resetStage();
+}
+
+template<class Impl>
+void
+DefaultDecode<Impl>::clearStates(ThreadID tid)
+{
+    decodeStatus[tid] = Idle;
+    stalls[tid].rename = false;
 }
 
 template<class Impl>
@@ -113,50 +120,38 @@ DefaultDecode<Impl>::name() const
 }
 
 template <class Impl>
-void
-DefaultDecode<Impl>::regStats()
+DefaultDecode<Impl>::DecodeStats::DecodeStats(O3CPU *cpu)
+    : Stats::Group(cpu, "decode"),
+      ADD_STAT(idleCycles, UNIT_CYCLE, "Number of cycles decode is idle"),
+      ADD_STAT(blockedCycles, UNIT_CYCLE,
+               "Number of cycles decode is blocked"),
+      ADD_STAT(runCycles, UNIT_CYCLE, "Number of cycles decode is running"),
+      ADD_STAT(unblockCycles, UNIT_CYCLE,
+               "Number of cycles decode is unblocking"),
+      ADD_STAT(squashCycles, UNIT_CYCLE,
+               "Number of cycles decode is squashing"),
+      ADD_STAT(branchResolved, UNIT_COUNT,
+               "Number of times decode resolved a branch"),
+      ADD_STAT(branchMispred, UNIT_COUNT,
+               "Number of times decode detected a branch misprediction"),
+      ADD_STAT(controlMispred, UNIT_COUNT,
+               "Number of times decode detected an instruction incorrectly "
+               "predicted as a control"),
+      ADD_STAT(decodedInsts, UNIT_COUNT,
+               "Number of instructions handled by decode"),
+      ADD_STAT(squashedInsts, UNIT_COUNT,
+               "Number of squashed instructions handled by decode")
 {
-    decodeIdleCycles
-        .name(name() + ".IdleCycles")
-        .desc("Number of cycles decode is idle")
-        .prereq(decodeIdleCycles);
-    decodeBlockedCycles
-        .name(name() + ".BlockedCycles")
-        .desc("Number of cycles decode is blocked")
-        .prereq(decodeBlockedCycles);
-    decodeRunCycles
-        .name(name() + ".RunCycles")
-        .desc("Number of cycles decode is running")
-        .prereq(decodeRunCycles);
-    decodeUnblockCycles
-        .name(name() + ".UnblockCycles")
-        .desc("Number of cycles decode is unblocking")
-        .prereq(decodeUnblockCycles);
-    decodeSquashCycles
-        .name(name() + ".SquashCycles")
-        .desc("Number of cycles decode is squashing")
-        .prereq(decodeSquashCycles);
-    decodeBranchResolved
-        .name(name() + ".BranchResolved")
-        .desc("Number of times decode resolved a branch")
-        .prereq(decodeBranchResolved);
-    decodeBranchMispred
-        .name(name() + ".BranchMispred")
-        .desc("Number of times decode detected a branch misprediction")
-        .prereq(decodeBranchMispred);
-    decodeControlMispred
-        .name(name() + ".ControlMispred")
-        .desc("Number of times decode detected an instruction incorrectly"
-              " predicted as a control")
-        .prereq(decodeControlMispred);
-    decodeDecodedInsts
-        .name(name() + ".DecodedInsts")
-        .desc("Number of instructions handled by decode")
-        .prereq(decodeDecodedInsts);
-    decodeSquashedInsts
-        .name(name() + ".SquashedInsts")
-        .desc("Number of squashed instructions handled by decode")
-        .prereq(decodeSquashedInsts);
+    idleCycles.prereq(idleCycles);
+    blockedCycles.prereq(blockedCycles);
+    runCycles.prereq(runCycles);
+    unblockCycles.prereq(unblockCycles);
+    squashCycles.prereq(squashCycles);
+    branchResolved.prereq(branchResolved);
+    branchMispred.prereq(branchMispred);
+    controlMispred.prereq(controlMispred);
+    decodedInsts.prereq(decodedInsts);
+    squashedInsts.prereq(squashedInsts);
 }
 
 template<class Impl>
@@ -230,7 +225,7 @@ DefaultDecode<Impl>::checkStall(ThreadID tid) const
     bool ret_val = false;
 
     if (stalls[tid].rename) {
-        DPRINTF(Decode,"[tid:%i]: Stall fom Rename stage detected.\n", tid);
+        DPRINTF(Decode,"[tid:%i] Stall fom Rename stage detected.\n", tid);
         ret_val = true;
     }
 
@@ -248,7 +243,7 @@ template<class Impl>
 bool
 DefaultDecode<Impl>::block(ThreadID tid)
 {
-    DPRINTF(Decode, "[tid:%u]: Blocking.\n", tid);
+    DPRINTF(Decode, "[tid:%i] Blocking.\n", tid);
 
     // Add the current inputs to the skid buffer so they can be
     // reprocessed when this stage unblocks.
@@ -280,7 +275,7 @@ DefaultDecode<Impl>::unblock(ThreadID tid)
 {
     // Decode is done unblocking only if the skid buffer is empty.
     if (skidBuffer[tid].empty()) {
-        DPRINTF(Decode, "[tid:%u]: Done unblocking.\n", tid);
+        DPRINTF(Decode, "[tid:%i] Done unblocking.\n", tid);
         toFetch->decodeUnblock[tid] = true;
         wroteToTimeBuffer = true;
 
@@ -288,7 +283,7 @@ DefaultDecode<Impl>::unblock(ThreadID tid)
         return true;
     }
 
-    DPRINTF(Decode, "[tid:%u]: Currently unblocking.\n", tid);
+    DPRINTF(Decode, "[tid:%i] Currently unblocking.\n", tid);
 
     return false;
 }
@@ -297,7 +292,7 @@ template<class Impl>
 void
 DefaultDecode<Impl>::squash(const DynInstPtr &inst, ThreadID tid)
 {
-    DPRINTF(Decode, "[tid:%i]: [sn:%i] Squashing due to incorrect branch "
+    DPRINTF(Decode, "[tid:%i] [sn:%llu] Squashing due to incorrect branch "
             "prediction detected at decode.\n", tid, inst->seqNum);
 
     // Send back mispredict information.
@@ -349,7 +344,7 @@ template<class Impl>
 unsigned
 DefaultDecode<Impl>::squash(ThreadID tid)
 {
-    DPRINTF(Decode, "[tid:%i]: Squashing.\n",tid);
+    DPRINTF(Decode, "[tid:%i] Squashing.\n",tid);
 
     if (decodeStatus[tid] == Blocked ||
         decodeStatus[tid] == Unblocking) {
@@ -514,7 +509,7 @@ DefaultDecode<Impl>::checkSignalsAndUpdate(ThreadID tid)
     // Check squash signals from commit.
     if (fromCommit->commitInfo[tid].squash) {
 
-        DPRINTF(Decode, "[tid:%u]: Squashing instructions due to squash "
+        DPRINTF(Decode, "[tid:%i] Squashing instructions due to squash "
                 "from commit.\n", tid);
 
         squash(tid);
@@ -527,7 +522,7 @@ DefaultDecode<Impl>::checkSignalsAndUpdate(ThreadID tid)
     }
 
     if (decodeStatus[tid] == Blocked) {
-        DPRINTF(Decode, "[tid:%u]: Done blocking, switching to unblocking.\n",
+        DPRINTF(Decode, "[tid:%i] Done blocking, switching to unblocking.\n",
                 tid);
 
         decodeStatus[tid] = Unblocking;
@@ -540,7 +535,7 @@ DefaultDecode<Impl>::checkSignalsAndUpdate(ThreadID tid)
     if (decodeStatus[tid] == Squashing) {
         // Switch status to running if decode isn't being told to block or
         // squash this cycle.
-        DPRINTF(Decode, "[tid:%u]: Done squashing, switching to running.\n",
+        DPRINTF(Decode, "[tid:%i] Done squashing, switching to running.\n",
                 tid);
 
         decodeStatus[tid] = Running;
@@ -601,16 +596,16 @@ DefaultDecode<Impl>::decode(bool &status_change, ThreadID tid)
     //     check if stall conditions have passed
 
     if (decodeStatus[tid] == Blocked) {
-        ++decodeBlockedCycles;
+        ++stats.blockedCycles;
     } else if (decodeStatus[tid] == Squashing) {
-        ++decodeSquashCycles;
+        ++stats.squashCycles;
     }
 
     // Decode should try to decode as many instructions as its bandwidth
     // will allow, as long as it is not currently blocked.
     if (decodeStatus[tid] == Running ||
         decodeStatus[tid] == Idle) {
-        DPRINTF(Decode, "[tid:%u]: Not blocked, so attempting to run "
+        DPRINTF(Decode, "[tid:%i] Not blocked, so attempting to run "
                 "stage.\n",tid);
 
         decodeInsts(tid);
@@ -644,24 +639,24 @@ DefaultDecode<Impl>::decodeInsts(ThreadID tid)
         skidBuffer[tid].size() : insts[tid].size();
 
     if (insts_available == 0) {
-        DPRINTF(Decode, "[tid:%u] Nothing to do, breaking out"
+        DPRINTF(Decode, "[tid:%i] Nothing to do, breaking out"
                 " early.\n",tid);
         // Should I change the status to idle?
-        ++decodeIdleCycles;
+        ++stats.idleCycles;
         return;
     } else if (decodeStatus[tid] == Unblocking) {
-        DPRINTF(Decode, "[tid:%u] Unblocking, removing insts from skid "
+        DPRINTF(Decode, "[tid:%i] Unblocking, removing insts from skid "
                 "buffer.\n",tid);
-        ++decodeUnblockCycles;
+        ++stats.unblockCycles;
     } else if (decodeStatus[tid] == Running) {
-        ++decodeRunCycles;
+        ++stats.runCycles;
     }
 
     std::queue<DynInstPtr>
         &insts_to_decode = decodeStatus[tid] == Unblocking ?
         skidBuffer[tid] : insts[tid];
 
-    DPRINTF(Decode, "[tid:%u]: Sending instruction to rename.\n",tid);
+    DPRINTF(Decode, "[tid:%i] Sending instruction to rename.\n",tid);
 
     while (insts_available > 0 && toRenameIndex < decodeWidth) {
         assert(!insts_to_decode.empty());
@@ -670,15 +665,15 @@ DefaultDecode<Impl>::decodeInsts(ThreadID tid)
 
         insts_to_decode.pop();
 
-        DPRINTF(Decode, "[tid:%u]: Processing instruction [sn:%lli] with "
+        DPRINTF(Decode, "[tid:%i] Processing instruction [sn:%lli] with "
                 "PC %s\n", tid, inst->seqNum, inst->pcState());
 
         if (inst->isSquashed()) {
-            DPRINTF(Decode, "[tid:%u]: Instruction %i with PC %s is "
+            DPRINTF(Decode, "[tid:%i] Instruction %i with PC %s is "
                     "squashed, skipping.\n",
                     tid, inst->seqNum, inst->pcState());
 
-            ++decodeSquashedInsts;
+            ++stats.squashedInsts;
 
             --insts_available;
 
@@ -700,7 +695,7 @@ DefaultDecode<Impl>::decodeInsts(ThreadID tid)
 
         ++(toRename->size);
         ++toRenameIndex;
-        ++decodeDecodedInsts;
+        ++stats.decodedInsts;
         --insts_available;
 
 #if TRACING_ON
@@ -714,7 +709,7 @@ DefaultDecode<Impl>::decodeInsts(ThreadID tid)
         if (inst->readPredTaken() && !inst->isControl()) {
             panic("Instruction predicted as a branch!");
 
-            ++decodeControlMispred;
+            ++stats.controlMispred;
 
             // Might want to set some sort of boolean and just do
             // a check at the end
@@ -729,18 +724,21 @@ DefaultDecode<Impl>::decodeInsts(ThreadID tid)
         if (inst->isDirectCtrl() &&
            (inst->isUncondCtrl() || inst->readPredTaken()))
         {
-            ++decodeBranchResolved;
+            ++stats.branchResolved;
 
             if (!(inst->branchTarget() == inst->readPredTarg())) {
-                ++decodeBranchMispred;
+                ++stats.branchMispred;
 
                 // Might want to set some sort of boolean and just do
                 // a check at the end
                 squash(inst, inst->threadNumber);
                 TheISA::PCState target = inst->branchTarget();
 
-                DPRINTF(Decode, "[sn:%i]: Updating predictions: PredPC: %s\n",
-                        inst->seqNum, target);
+                DPRINTF(Decode,
+                        "[tid:%i] [sn:%llu] "
+                        "Updating predictions: Wrong predicted target: %s \
+                        PredPC: %s\n",
+                        tid, inst->seqNum, inst->readPredTarg(), target);
                 //The micro pc after an instruction level branch should be 0
                 inst->setPredTarg(target);
                 break;

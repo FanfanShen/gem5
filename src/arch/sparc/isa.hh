@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_SPARC_ISA_HH__
@@ -34,9 +32,9 @@
 #include <ostream>
 #include <string>
 
+#include "arch/generic/isa.hh"
 #include "arch/sparc/registers.hh"
 #include "arch/sparc/types.hh"
-#include "cpu/cpuevent.hh"
 #include "cpu/reg_class.hh"
 #include "sim/sim_object.hh"
 
@@ -47,7 +45,7 @@ class ThreadContext;
 
 namespace SparcISA
 {
-class ISA : public SimObject
+class ISA : public BaseISA
 {
   private:
 
@@ -116,29 +114,26 @@ class ISA : public SimObject
 
     // These need to check the int_dis field and if 0 then
     // set appropriate bit in softint and checkinterrutps on the cpu
-    void  setFSReg(int miscReg, const MiscReg &val, ThreadContext *tc);
-    MiscReg readFSReg(int miscReg, ThreadContext * tc);
+    void  setFSReg(int miscReg, RegVal val);
+    RegVal readFSReg(int miscReg);
 
     // Update interrupt state on softint or pil change
-    void checkSoftInt(ThreadContext *tc);
+    void checkSoftInt();
 
     /** Process a tick compare event and generate an interrupt on the cpu if
      * appropriate. */
-    void processTickCompare(ThreadContext *tc);
-    void processSTickCompare(ThreadContext *tc);
-    void processHSTickCompare(ThreadContext *tc);
+    void processTickCompare();
+    void processSTickCompare();
+    void processHSTickCompare();
 
-    typedef CpuEventWrapper<ISA,
-            &ISA::processTickCompare> TickCompareEvent;
-    TickCompareEvent *tickCompare;
+    typedef EventWrapper<ISA, &ISA::processTickCompare> TickCompareEvent;
+    TickCompareEvent *tickCompare = nullptr;
 
-    typedef CpuEventWrapper<ISA,
-            &ISA::processSTickCompare> STickCompareEvent;
-    STickCompareEvent *sTickCompare;
+    typedef EventWrapper<ISA, &ISA::processSTickCompare> STickCompareEvent;
+    STickCompareEvent *sTickCompare = nullptr;
 
-    typedef CpuEventWrapper<ISA,
-            &ISA::processHSTickCompare> HSTickCompareEvent;
-    HSTickCompareEvent *hSTickCompare;
+    typedef EventWrapper<ISA, &ISA::processHSTickCompare> HSTickCompareEvent;
+    HSTickCompareEvent *hSTickCompare = nullptr;
 
     static const int NumGlobalRegs = 8;
     static const int NumWindowedRegs = 24;
@@ -171,11 +166,6 @@ class ISA : public SimObject
     void serialize(CheckpointOut &cp) const override;
     void unserialize(CheckpointIn &cp) override;
 
-    void startup(ThreadContext *tc) {}
-
-    /// Explicitly import the otherwise hidden startup
-    using SimObject::startup;
-
   protected:
     bool isHyperPriv() { return hpstate.hpriv; }
     bool isPriv() { return hpstate.hpriv || pstate.priv; }
@@ -183,12 +173,11 @@ class ISA : public SimObject
 
   public:
 
-    MiscReg readMiscRegNoEffect(int miscReg) const;
-    MiscReg readMiscReg(int miscReg, ThreadContext *tc);
+    RegVal readMiscRegNoEffect(int miscReg) const;
+    RegVal readMiscReg(int miscReg);
 
-    void setMiscRegNoEffect(int miscReg, const MiscReg val);
-    void setMiscReg(int miscReg, const MiscReg val,
-            ThreadContext *tc);
+    void setMiscRegNoEffect(int miscReg, RegVal val);
+    void setMiscReg(int miscReg, RegVal val);
 
     RegId
     flattenRegId(const RegId& regId) const
@@ -217,42 +206,32 @@ class ISA : public SimObject
         return flatIndex;
     }
 
-    int
-    flattenFloatIndex(int reg) const
-    {
-        return reg;
-    }
-
-    int
-    flattenVecIndex(int reg) const
-    {
-        return reg;
-    }
-
-    int
-    flattenVecElemIndex(int reg) const
-    {
-        return reg;
-    }
+    int flattenFloatIndex(int reg) const { return reg; }
+    int flattenVecIndex(int reg) const { return reg; }
+    int flattenVecElemIndex(int reg) const { return reg; }
+    int flattenVecPredIndex(int reg) const { return reg; }
 
     // dummy
-    int
-    flattenCCIndex(int reg) const
+    int flattenCCIndex(int reg) const { return reg; }
+    int flattenMiscIndex(int reg) const { return reg; }
+
+    uint64_t
+    getExecutingAsid() const override
     {
-        return reg;
+        return readMiscRegNoEffect(MISCREG_MMU_P_CONTEXT);
     }
 
-    int
-    flattenMiscIndex(int reg) const
+    using Params = SparcISAParams;
+
+    bool
+    inUserMode() const override
     {
-        return reg;
+        PSTATE pstate = readMiscRegNoEffect(MISCREG_PSTATE);
+        HPSTATE hpstate = readMiscRegNoEffect(MISCREG_HPSTATE);
+        return !(pstate.priv || hpstate.hpriv);
     }
 
-
-    typedef SparcISAParams Params;
-    const Params *params() const;
-
-    ISA(Params *p);
+    ISA(const Params &p);
 };
 }
 

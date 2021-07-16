@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "base/fiber.hh"
@@ -49,8 +47,6 @@
 #include <cstring>
 
 #include "base/logging.hh"
-
-using namespace std;
 
 namespace
 {
@@ -88,7 +84,7 @@ Fiber::Fiber(size_t stack_size) : Fiber(primaryFiber(), stack_size)
 
 Fiber::Fiber(Fiber *link, size_t stack_size) :
     link(link), stack(nullptr), stackSize(stack_size), guardPage(nullptr),
-    guardPageSize(sysconf(_SC_PAGE_SIZE)), started(false), _finished(false)
+    guardPageSize(sysconf(_SC_PAGE_SIZE)), _started(false), _finished(false)
 {
     if (stack_size) {
         guardPage = mmap(nullptr, guardPageSize + stack_size,
@@ -147,10 +143,12 @@ Fiber::start()
 
     setStarted();
 
-    // Swap back to the parent context which is still considered "current",
-    // now that we're ready to go.
-    int ret M5_VAR_USED = swapcontext(&ctx, &_currentFiber->ctx);
-    panic_if(ret == -1, strerror(errno));
+    if (_setjmp(jmp) == 0) {
+        // Swap back to the parent context which is still considered "current",
+        // now that we're ready to go.
+        int ret = swapcontext(&ctx, &_currentFiber->ctx);
+        panic_if(ret == -1, strerror(errno));
+    }
 
     // Call main() when we're been reactivated for the first time.
     main();
@@ -170,14 +168,15 @@ Fiber::run()
     if (_currentFiber == this)
         return;
 
-    if (!started)
+    if (!_started)
         createContext();
 
     // Switch out of the current Fiber's context and this one's in.
     Fiber *prev = _currentFiber;
     Fiber *next = this;
     _currentFiber = next;
-    swapcontext(&prev->ctx, &next->ctx);
+    if (_setjmp(prev->jmp) == 0)
+        _longjmp(next->jmp, 1);
 }
 
 Fiber *Fiber::currentFiber() { return _currentFiber; }

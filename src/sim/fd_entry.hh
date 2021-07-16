@@ -29,8 +29,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Brandon Potter
  */
 
 #ifndef __FD_ENTRY_HH__
@@ -79,6 +77,16 @@ class HBFDEntry: public FDEntry
     HBFDEntry(int flags, int sim_fd, bool close_on_exec = false)
         : FDEntry(close_on_exec), _flags(flags), _simFD(sim_fd)
     { }
+
+    HBFDEntry(HBFDEntry const& reg, bool close_on_exec = false)
+        : FDEntry(close_on_exec), _flags(reg._flags), _simFD(reg._simFD)
+    { }
+
+    std::shared_ptr<FDEntry>
+    clone() const override
+    {
+        return std::make_shared<HBFDEntry>(*this);
+    }
 
     int getFlags() const { return _flags; }
     int getSimFD() const { return _simFD; }
@@ -209,6 +217,31 @@ class DeviceFDEntry : public FDEntry
   private:
     EmulatedDriver *_driver;
     std::string _fileName;
+};
+
+class SocketFDEntry: public HBFDEntry
+{
+  public:
+    SocketFDEntry(int sim_fd, int domain, int type, int protocol,
+                  bool close_on_exec = false)
+        : HBFDEntry(0, sim_fd, close_on_exec),
+          _domain(domain), _type(type), _protocol(protocol)
+    { }
+
+    SocketFDEntry(SocketFDEntry const& reg, bool close_on_exec = false)
+        : HBFDEntry(reg._flags, reg._simFD, close_on_exec),
+          _domain(reg._domain), _type(reg._type), _protocol(reg._protocol)
+    { }
+
+    std::shared_ptr<FDEntry>
+    clone() const override
+    {
+        return std::make_shared<SocketFDEntry>(*this);
+    }
+
+    int _domain;
+    int _type;
+    int _protocol;
 };
 
 #endif // __FD_ENTRY_HH__

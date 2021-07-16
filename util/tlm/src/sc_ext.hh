@@ -29,10 +29,6 @@
  * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
  * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors:
- *    Matthias Jung
- *    Christian Menard
  */
 
 #ifndef __SC_EXT_HH__
@@ -62,12 +58,8 @@ class Gem5Extension: public tlm::tlm_extension<Gem5Extension>
         getExtension(const tlm::tlm_generic_payload &payload);
     PacketPtr getPacket();
 
-    bool isPipeThrough() const { return pipeThrough; }
-    void setPipeThrough() { pipeThrough = true; }
-
   private:
     PacketPtr Packet;
-    bool pipeThrough;
 };
 
 }

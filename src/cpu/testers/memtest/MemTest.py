@@ -35,15 +35,13 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Nathan Binkert
-#          Andreas Hansson
 
-from MemObject import MemObject
 from m5.params import *
 from m5.proxy import *
 
-class MemTest(MemObject):
+from m5.objects.ClockedObject import ClockedObject
+
+class MemTest(ClockedObject):
     type = 'MemTest'
     cxx_header = "cpu/testers/memtest/memtest.hh"
 
@@ -66,10 +64,10 @@ class MemTest(MemObject):
     progress_check = Param.Cycles(5000000, "Cycles before exiting " \
                                       "due to lack of progress")
 
-    port = MasterPort("Port to the memory system")
+    port = RequestPort("Port to the memory system")
     system = Param.System(Parent.any, "System this tester is part of")
 
     # Add the ability to supress error responses on functional
     # accesses as Ruby needs this
-    suppress_func_warnings = Param.Bool(False, "Suppress warnings when "\
+    suppress_func_errors = Param.Bool(False, "Suppress panic when "\
                                             "functional accesses fail.")

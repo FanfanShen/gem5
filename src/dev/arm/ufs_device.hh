@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Rene de Jong
  */
 
 
@@ -145,6 +143,7 @@
 #define __DEV_ARM_UFS_DEVICE_HH__
 
 #include <deque>
+#include <functional>
 
 #include "base/addr_range.hh"
 #include "base/bitfield.hh"
@@ -171,7 +170,7 @@ class UFSHostDevice : public DmaDevice
 {
   public:
 
-    UFSHostDevice(const UFSHostDeviceParams* p);
+    UFSHostDevice(const UFSHostDeviceParams &p);
 
     DrainState drain() override;
     void checkDrain();
@@ -496,7 +495,10 @@ class UFSHostDevice : public DmaDevice
     /**
      * Statistics
      */
-    struct UFSHostDeviceStats {
+    struct UFSHostDeviceStats : public Stats::Group
+    {
+        UFSHostDeviceStats(UFSHostDevice *parent);
+
         /** Queue lengths */
         Stats::Scalar currentSCSIQueue;
         Stats::Scalar currentReadSSDQueue;
@@ -537,11 +539,13 @@ class UFSHostDevice : public DmaDevice
     class UFSSCSIDevice: SimObject
     {
       public:
+        using Callback = std::function<void()>;
+
         /**
          * Constructor and destructor
          */
-        UFSSCSIDevice(const UFSHostDeviceParams* p, uint32_t lun_id, Callback*
-                      transfer_cb, Callback *read_cb);
+        UFSSCSIDevice(const UFSHostDeviceParams &p, uint32_t lun_id,
+                      const Callback &transfer_cb, const Callback &read_cb);
         ~UFSSCSIDevice();
 
         /**
@@ -724,14 +728,14 @@ class UFSHostDevice : public DmaDevice
         /**
          * Callbacks between Host and Device
          */
-        Callback* signalDone;
-        Callback* deviceReadCallback;
+        Callback signalDone;
+        Callback deviceReadCallback;
 
         /**
          * Callbacks between Device and Memory
          */
-        Callback* memReadCallback;
-        Callback* memWriteCallback;
+        Callback memReadCallback;
+        Callback memWriteCallback;
 
         /*
          * Default response header layout. For more information refer to
@@ -991,9 +995,6 @@ class UFSHostDevice : public DmaDevice
      */
     void readGarbage();
 
-    /**register statistics*/
-    void regStats() override;
-
     /**
      * Host controller information
      */
@@ -1135,14 +1136,6 @@ class UFSHostDevice : public DmaDevice
      */
     std::deque<EventFunctionWrapper> readDoneEvent;
     std::deque<EventFunctionWrapper> writeDoneEvent;
-
-    /**
-     * Callbacks for the logic units. One to indicate the completion of a
-     * transaction, the other one to indicate the completion of a read
-     * action.
-     */
-    Callback* transferDoneCallback;
-    Callback* memReadCallback;
 
     /**
      * The events that control the functionality.

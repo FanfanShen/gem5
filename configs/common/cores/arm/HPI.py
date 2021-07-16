@@ -1,4 +1,4 @@
-# Copyright (c) 2014-2017 ARM Limited
+# Copyright (c) 2014-2017, 2020 ARM Limited
 # All rights reserved.
 #
 # The license below extends only to copyright in the software and shall
@@ -32,9 +32,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Andrew Bardsley
-#
 
 """The High-Performance In-order (HPI) CPU timing model is tuned to be
 representative of a modern in-order ARMv8-A implementation. The HPI
@@ -44,8 +41,6 @@ Research Starter Kit on System Modeling. More information can be found
 at: http://www.arm.com/ResearchEnablement/SystemModeling
 
 """
-
-from __future__ import print_function
 
 from m5.objects import *
 
@@ -177,7 +172,7 @@ def let(bindings, expr):
 
         defns = []
         # Then apply them to the produced new env
-        for i in xrange(0, len(bindings)):
+        for i in range(0, len(bindings)):
             name, binding_expr = bindings[i]
             defns.append(binding_expr(new_env))
 
@@ -1333,11 +1328,15 @@ class HPI_FUPool(MinorFUPool):
         HPI_MiscFU() # 6
         ]
 
-class HPI_DTB(ArmTLB):
+class HPI_DTB(ArmDTB):
     size = 256
 
-class HPI_ITB(ArmTLB):
+class HPI_ITB(ArmITB):
     size = 256
+
+class HPI_MMU(ArmMMU):
+    itb = HPI_ITB()
+    dtb = HPI_DTB()
 
 class HPI_WalkCache(Cache):
     data_latency = 4
@@ -1445,8 +1444,7 @@ class HPI(MinorCPU):
 
     branchPred = HPI_BP()
 
-    itb = HPI_ITB()
-    dtb = HPI_DTB()
+    mmu = HPI_MMU()
 
 __all__ = [
     "HPI_BP",

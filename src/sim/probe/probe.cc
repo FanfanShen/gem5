@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Matt Horsnell
  */
 
 #include "sim/probe/probe.hh"
@@ -50,9 +48,10 @@ ProbePoint::ProbePoint(ProbeManager *manager, const std::string& _name)
     }
 }
 
-ProbeListenerObject::ProbeListenerObject(const ProbeListenerObjectParams *params)
+ProbeListenerObject::ProbeListenerObject(
+        const ProbeListenerObjectParams &params)
     : SimObject(params),
-      manager(params->manager->getProbeManager())
+      manager(params.manager->getProbeManager())
 {
 }
 
@@ -73,12 +72,6 @@ ProbeListener::ProbeListener(ProbeManager *_manager, const std::string &_name)
 ProbeListener::~ProbeListener()
 {
     manager->removeListener(name, *this);
-}
-
-ProbeListenerObject*
-ProbeListenerObjectParams::create()
-{
-    return new ProbeListenerObject(this);
 }
 
 bool

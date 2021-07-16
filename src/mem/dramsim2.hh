@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Hansson
  */
 
 /**
@@ -61,7 +59,7 @@ class DRAMSim2 : public AbstractMemory
      * having unbounded storage that is implicitly created in the port
      * itself.
      */
-    class MemoryPort : public SlavePort
+    class MemoryPort : public ResponsePort
     {
 
       private:
@@ -169,7 +167,7 @@ class DRAMSim2 : public AbstractMemory
   public:
 
     typedef DRAMSim2Params Params;
-    DRAMSim2(const Params *p);
+    DRAMSim2(const Params &p);
 
     /**
      * Read completion callback.
@@ -191,8 +189,8 @@ class DRAMSim2 : public AbstractMemory
 
     DrainState drain() override;
 
-    virtual BaseSlavePort& getSlavePort(const std::string& if_name,
-                                        PortID idx = InvalidPortID) override;
+    Port &getPort(const std::string &if_name,
+                  PortID idx=InvalidPortID) override;
 
     void init() override;
     void startup() override;

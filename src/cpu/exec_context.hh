@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014, 2016 ARM Limited
+ * Copyright (c) 2014, 2016-2018, 2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Andreas Sandberg
  */
 
 #ifndef __CPU_EXEC_CONTEXT_HH__
@@ -70,18 +67,8 @@
  * implementation doesn't copy the pointer into any long-term storage
  * (which is pretty hard to imagine they would have reason to do).
  */
-class ExecContext {
-  public:
-    typedef TheISA::IntReg IntReg;
-    typedef TheISA::PCState PCState;
-    typedef TheISA::FloatReg FloatReg;
-    typedef TheISA::FloatRegBits FloatRegBits;
-    typedef TheISA::MiscReg MiscReg;
-
-    typedef TheISA::CCReg CCReg;
-    using VecRegContainer = TheISA::VecRegContainer;
-    using VecElem = TheISA::VecElem;
-
+class ExecContext
+{
   public:
     /**
      * @{
@@ -90,11 +77,11 @@ class ExecContext {
      */
 
     /** Reads an integer register. */
-    virtual IntReg readIntRegOperand(const StaticInst *si, int idx) = 0;
+    virtual RegVal readIntRegOperand(const StaticInst *si, int idx) = 0;
 
     /** Sets an integer register to a value. */
     virtual void setIntRegOperand(const StaticInst *si,
-                                  int idx, IntReg val) = 0;
+                                  int idx, RegVal val) = 0;
 
     /** @} */
 
@@ -104,58 +91,49 @@ class ExecContext {
      * @name Floating Point Register Interfaces
      */
 
-    /** Reads a floating point register of single register width. */
-    virtual FloatReg readFloatRegOperand(const StaticInst *si, int idx) = 0;
-
     /** Reads a floating point register in its binary format, instead
      * of by value. */
-    virtual FloatRegBits readFloatRegOperandBits(const StaticInst *si,
-                                                 int idx) = 0;
-
-    /** Sets a floating point register of single width to a value. */
-    virtual void setFloatRegOperand(const StaticInst *si,
-                                    int idx, FloatReg val) = 0;
+    virtual RegVal readFloatRegOperandBits(const StaticInst *si, int idx) = 0;
 
     /** Sets the bits of a floating point register of single width
      * to a binary value. */
     virtual void setFloatRegOperandBits(const StaticInst *si,
-                                        int idx, FloatRegBits val) = 0;
+                                        int idx, RegVal val) = 0;
 
     /** @} */
 
     /** Vector Register Interfaces. */
     /** @{ */
     /** Reads source vector register operand. */
-    virtual const VecRegContainer&
-    readVecRegOperand(const StaticInst *si, int idx) const = 0;
+    virtual const TheISA::VecRegContainer& readVecRegOperand(
+            const StaticInst *si, int idx) const = 0;
 
     /** Gets destination vector register operand for modification. */
-    virtual VecRegContainer&
-    getWritableVecRegOperand(const StaticInst *si, int idx) = 0;
+    virtual TheISA::VecRegContainer& getWritableVecRegOperand(
+            const StaticInst *si, int idx) = 0;
 
     /** Sets a destination vector register operand to a value. */
-    virtual void
-    setVecRegOperand(const StaticInst *si, int idx,
-                     const VecRegContainer& val) = 0;
+    virtual void setVecRegOperand(const StaticInst *si, int idx,
+            const TheISA::VecRegContainer& val) = 0;
     /** @} */
 
     /** Vector Register Lane Interfaces. */
     /** @{ */
     /** Reads source vector 8bit operand. */
-    virtual ConstVecLane8
-    readVec8BitLaneOperand(const StaticInst *si, int idx) const = 0;
+    virtual ConstVecLane8 readVec8BitLaneOperand(
+            const StaticInst *si, int idx) const = 0;
 
     /** Reads source vector 16bit operand. */
-    virtual ConstVecLane16
-    readVec16BitLaneOperand(const StaticInst *si, int idx) const = 0;
+    virtual ConstVecLane16 readVec16BitLaneOperand(
+            const StaticInst *si, int idx) const = 0;
 
     /** Reads source vector 32bit operand. */
-    virtual ConstVecLane32
-    readVec32BitLaneOperand(const StaticInst *si, int idx) const = 0;
+    virtual ConstVecLane32 readVec32BitLaneOperand(
+            const StaticInst *si, int idx) const = 0;
 
     /** Reads source vector 64bit operand. */
-    virtual ConstVecLane64
-    readVec64BitLaneOperand(const StaticInst *si, int idx) const = 0;
+    virtual ConstVecLane64 readVec64BitLaneOperand(
+            const StaticInst *si, int idx) const = 0;
 
     /** Write a lane of the destination vector operand. */
     /** @{ */
@@ -172,41 +150,58 @@ class ExecContext {
     /** Vector Elem Interfaces. */
     /** @{ */
     /** Reads an element of a vector register. */
-    virtual VecElem readVecElemOperand(const StaticInst *si,
-                                        int idx) const = 0;
+    virtual TheISA::VecElem readVecElemOperand(
+            const StaticInst *si, int idx) const = 0;
 
     /** Sets a vector register to a value. */
-    virtual void setVecElemOperand(const StaticInst *si, int idx,
-                                   const VecElem val) = 0;
+    virtual void setVecElemOperand(
+            const StaticInst *si, int idx, const TheISA::VecElem val) = 0;
+    /** @} */
+
+    /** Predicate registers interface. */
+    /** @{ */
+    /** Reads source predicate register operand. */
+    virtual const TheISA::VecPredRegContainer& readVecPredRegOperand(
+            const StaticInst *si, int idx) const = 0;
+
+    /** Gets destination predicate register operand for modification. */
+    virtual TheISA::VecPredRegContainer& getWritableVecPredRegOperand(
+            const StaticInst *si, int idx) = 0;
+
+    /** Sets a destination predicate register operand to a value. */
+    virtual void setVecPredRegOperand(
+            const StaticInst *si, int idx,
+            const TheISA::VecPredRegContainer& val) = 0;
     /** @} */
 
     /**
      * @{
      * @name Condition Code Registers
      */
-    virtual CCReg readCCRegOperand(const StaticInst *si, int idx) = 0;
-    virtual void setCCRegOperand(const StaticInst *si, int idx, CCReg val) = 0;
+    virtual RegVal readCCRegOperand(const StaticInst *si, int idx) = 0;
+    virtual void setCCRegOperand(
+            const StaticInst *si, int idx, RegVal val) = 0;
     /** @} */
 
     /**
      * @{
      * @name Misc Register Interfaces
      */
-    virtual MiscReg readMiscRegOperand(const StaticInst *si, int idx) = 0;
+    virtual RegVal readMiscRegOperand(const StaticInst *si, int idx) = 0;
     virtual void setMiscRegOperand(const StaticInst *si,
-                                   int idx, const MiscReg &val) = 0;
+                                   int idx, RegVal val) = 0;
 
     /**
      * Reads a miscellaneous register, handling any architectural
      * side effects due to reading that register.
      */
-    virtual MiscReg readMiscReg(int misc_reg) = 0;
+    virtual RegVal readMiscReg(int misc_reg) = 0;
 
     /**
      * Sets a miscellaneous register, handling any architectural
      * side effects due to writing that register.
      */
-    virtual void setMiscReg(int misc_reg, const MiscReg &val) = 0;
+    virtual void setMiscReg(int misc_reg, RegVal val) = 0;
 
     /** @} */
 
@@ -214,8 +209,8 @@ class ExecContext {
      * @{
      * @name PC Control
      */
-    virtual PCState pcState() const = 0;
-    virtual void pcState(const PCState &val) = 0;
+    virtual TheISA::PCState pcState() const = 0;
+    virtual void pcState(const TheISA::PCState &val) = 0;
     /** @} */
 
     /**
@@ -229,8 +224,9 @@ class ExecContext {
      * mode need not override (though in that case this function
      * should never be called).
      */
-    virtual Fault readMem(Addr addr, uint8_t *data, unsigned int size,
-                          Request::Flags flags)
+    virtual Fault
+    readMem(Addr addr, uint8_t *data, unsigned int size,
+            Request::Flags flags, const std::vector<bool>& byte_enable)
     {
         panic("ExecContext::readMem() should be overridden\n");
     }
@@ -242,18 +238,47 @@ class ExecContext {
      * mode need not override (though in that case this function
      * should never be called).
      */
-    virtual Fault initiateMemRead(Addr addr, unsigned int size,
-                                  Request::Flags flags)
+    virtual Fault
+    initiateMemRead(Addr addr, unsigned int size,
+            Request::Flags flags, const std::vector<bool>& byte_enable)
     {
         panic("ExecContext::initiateMemRead() should be overridden\n");
     }
 
     /**
+     * Initiate an HTM command,
+     * e.g. tell Ruby we're starting/stopping a transaction
+     */
+    virtual Fault initiateHtmCmd(Request::Flags flags) = 0;
+    /**
      * For atomic-mode contexts, perform an atomic memory write operation.
      * For timing-mode contexts, initiate a timing memory write operation.
      */
     virtual Fault writeMem(uint8_t *data, unsigned int size, Addr addr,
-                           Request::Flags flags, uint64_t *res) = 0;
+                           Request::Flags flags, uint64_t *res,
+                           const std::vector<bool>& byte_enable) = 0;
+
+    /**
+     * For atomic-mode contexts, perform an atomic AMO (a.k.a., Atomic
+     * Read-Modify-Write Memory Operation)
+     */
+    virtual Fault
+    amoMem(Addr addr, uint8_t *data, unsigned int size,
+            Request::Flags flags, AtomicOpFunctorPtr amo_op)
+    {
+        panic("ExecContext::amoMem() should be overridden\n");
+    }
+
+    /**
+     * For timing-mode contexts, initiate an atomic AMO (atomic
+     * read-modify-write memory operation)
+     */
+    virtual Fault
+    initiateMemAMO(Addr addr, unsigned int size, Request::Flags flags,
+            AtomicOpFunctorPtr amo_op)
+    {
+        panic("ExecContext::initiateMemAMO() should be overridden\n");
+    }
 
     /**
      * Sets the number of consecutive store conditional failures.
@@ -267,39 +292,8 @@ class ExecContext {
 
     /** @} */
 
-    /**
-     * @{
-     * @name SysCall Emulation Interfaces
-     */
-
-    /**
-     * Executes a syscall specified by the callnum.
-     */
-    virtual void syscall(int64_t callnum, Fault *fault) = 0;
-
-    /** @} */
-
     /** Returns a pointer to the ThreadContext. */
-    virtual ThreadContext *tcBase() = 0;
-
-    /**
-     * @{
-     * @name Alpha-Specific Interfaces
-     */
-
-    /**
-     * Somewhat Alpha-specific function that handles returning from an
-     * error or interrupt.
-     */
-    virtual Fault hwrei() = 0;
-
-    /**
-     * Check for special simulator handling of specific PAL calls.  If
-     * return value is false, actual PAL call will be suppressed.
-     */
-    virtual bool simPalCheck(int palFunc) = 0;
-
-    /** @} */
+    virtual ThreadContext *tcBase() const = 0;
 
     /**
      * @{
@@ -308,6 +302,14 @@ class ExecContext {
 
     virtual bool readPredicate() const = 0;
     virtual void setPredicate(bool val) = 0;
+    virtual bool readMemAccPredicate() const = 0;
+    virtual void setMemAccPredicate(bool val) = 0;
+
+    // hardware transactional memory
+    virtual uint64_t newHtmTransactionUid() const = 0;
+    virtual uint64_t getHtmTransactionUid() const = 0;
+    virtual bool inHtmTransactionalState() const = 0;
+    virtual uint64_t getHtmTransactionalDepth() const = 0;
 
     /** @} */
 
@@ -324,20 +326,6 @@ class ExecContext {
     virtual bool mwait(PacketPtr pkt) = 0;
     virtual void mwaitAtomic(ThreadContext *tc) = 0;
     virtual AddressMonitor *getAddrMonitor() = 0;
-
-    /** @} */
-
-    /**
-     * @{
-     * @name MIPS-Specific Interfaces
-     */
-
-#if THE_ISA == MIPS_ISA
-    virtual MiscReg readRegOtherThread(const RegId& reg,
-                                       ThreadID tid = InvalidThreadID) = 0;
-    virtual void setRegOtherThread(const RegId& reg, MiscReg val,
-                                   ThreadID tid = InvalidThreadID) = 0;
-#endif
 
     /** @} */
 };

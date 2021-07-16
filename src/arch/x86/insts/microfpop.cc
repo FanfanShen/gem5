@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "arch/x86/insts/microfpop.hh"
@@ -45,25 +43,20 @@
 
 namespace X86ISA
 {
-    /*
-    uint64_t FpOp::genFlags(uint64_t oldFlags, uint64_t flagMask,
-            uint64_t _dest, uint64_t _src1, uint64_t _src2,
-            bool subtract) const
-    {
-    }
-    */
 
-    std::string FpOp::generateDisassembly(Addr pc,
-            const SymbolTable *symtab) const
-    {
-        std::stringstream response;
+std::string
+FpOp::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
+{
+    std::stringstream response;
 
-        printMnemonic(response, instMnem, mnemonic);
-        printDestReg(response, 0, dataSize);
-        response << ", ";
-        printSrcReg(response, 0, dataSize);
-        response << ", ";
-        printSrcReg(response, 1, dataSize);
-        return response.str();
-    }
+    printMnemonic(response, instMnem, mnemonic);
+    printDestReg(response, 0, dataSize);
+    response << ", ";
+    printSrcReg(response, 0, dataSize);
+    response << ", ";
+    printSrcReg(response, 1, dataSize);
+    return response.str();
+}
+
 }

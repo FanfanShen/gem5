@@ -23,15 +23,16 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __SYSTEMC_CORE_SCHEDULER_HH__
 #define __SYSTEMC_CORE_SCHEDULER_HH__
 
+#include <atomic>
 #include <functional>
+#include <list>
 #include <map>
+#include <mutex>
 #include <set>
 #include <vector>
 
@@ -152,13 +153,27 @@ class Scheduler
     class TimeSlot : public ::Event
     {
       public:
-        TimeSlot() : ::Event(Default_Pri, AutoDelete) {}
-
+        TimeSlot(Scheduler* scheduler) : ::Event(Default_Pri, AutoDelete),
+                                         parent_scheduler(scheduler) {}
+        // Event::when() is only set after it's scheduled to an event queue.
+        // However, TimeSlot won't be scheduled before init is done. We need
+        // to keep the real 'targeted_when' information before scheduled.
+        Tick targeted_when;
+        Scheduler* parent_scheduler;
         ScEvents events;
-        void process();
+        void process() override;
+
+      protected:
+        void
+        releaseImpl() override
+        {
+            if (!scheduled())
+                parent_scheduler->releaseTimeSlot(this);
+        }
+
     };
 
-    typedef std::map<Tick, TimeSlot *> TimeSlots;
+    typedef std::list<TimeSlot *> TimeSlots;
 
     Scheduler();
     ~Scheduler();
@@ -191,6 +206,8 @@ class Scheduler
 
     // Schedule an update for a given channel.
     void requestUpdate(Channel *c);
+    // Same as above, but may be called from a different thread.
+    void asyncRequestUpdate(Channel *c);
 
     // Run the given process immediately, preempting whatever may be running.
     void
@@ -249,12 +266,14 @@ class Scheduler
         }
 
         // Timed notification/timeout.
-        TimeSlot *&ts = timeSlots[tick];
-        if (!ts) {
-            ts = new TimeSlot;
-            schedule(ts, tick);
+        auto it = timeSlots.begin();
+        while (it != timeSlots.end() && (*it)->targeted_when < tick)
+            it++;
+        if (it == timeSlots.end() || (*it)->targeted_when != tick) {
+            it = timeSlots.emplace(it, acquireTimeSlot(tick));
+            schedule(*it, tick);
         }
-        event->schedule(ts->events, tick);
+        event->schedule((*it)->events, tick);
     }
 
     // For descheduling delayed/timed notifications/timeouts.
@@ -269,10 +288,15 @@ class Scheduler
         }
 
         // Timed notification/timeout.
-        auto tsit = timeSlots.find(event->when());
-        panic_if(tsit == timeSlots.end(),
+        auto tsit = timeSlots.begin();
+        while (tsit != timeSlots.end() &&
+               (*tsit)->targeted_when < event->when())
+            tsit++;
+
+        panic_if(tsit == timeSlots.end() ||
+                 (*tsit)->targeted_when != event->when(),
                 "Descheduling event at time with no events.");
-        TimeSlot *ts = tsit->second;
+        TimeSlot *ts = *tsit;
         ScEvents &events = ts->events;
         assert(on == &events);
         event->deschedule();
@@ -287,7 +311,7 @@ class Scheduler
     void
     completeTimeSlot(TimeSlot *ts)
     {
-        assert(ts == timeSlots.begin()->second);
+        assert(ts == timeSlots.front());
         timeSlots.erase(timeSlots.begin());
         if (!runToTime && starved())
             scheduleStarvationEvent();
@@ -323,7 +347,7 @@ class Scheduler
         if (pendingCurr())
             return 0;
         if (pendingFuture())
-            return timeSlots.begin()->first - getCurTick();
+            return timeSlots.front()->targeted_when - getCurTick();
         return MaxTick - getCurTick();
     }
 
@@ -363,13 +387,36 @@ class Scheduler
     uint64_t changeStamp() { return _changeStamp; }
     void stepChangeStamp() { _changeStamp++; }
 
-    void throwToScMain();
+    // Throw upwards, either to sc_main or to the report handler if sc_main
+    // isn't running.
+    void throwUp();
 
     Status status() { return _status; }
     void status(Status s) { _status = s; }
 
     void registerTraceFile(TraceFile *tf) { traceFiles.insert(tf); }
     void unregisterTraceFile(TraceFile *tf) { traceFiles.erase(tf); }
+
+    TimeSlot*
+    acquireTimeSlot(Tick tick)
+    {
+        TimeSlot *ts = nullptr;
+        if (!freeTimeSlots.empty()) {
+            ts = freeTimeSlots.top();
+            freeTimeSlots.pop();
+        } else {
+            ts = new TimeSlot(this);
+        }
+        ts->targeted_when = tick;
+        ts->events.clear();
+        return ts;
+    }
+
+    void
+    releaseTimeSlot(TimeSlot *ts)
+    {
+        freeTimeSlots.push(ts);
+    }
 
   private:
     typedef const EventBase::Priority Priority;
@@ -407,6 +454,7 @@ class Scheduler
 
     ScEvents deltas;
     TimeSlots timeSlots;
+    std::stack<TimeSlot*> freeTimeSlots;
 
     Process *
     getNextReady()
@@ -424,14 +472,15 @@ class Scheduler
     EventWrapper<Scheduler, &Scheduler::pause> pauseEvent;
     EventWrapper<Scheduler, &Scheduler::stop> stopEvent;
 
-    const ::sc_core::sc_report *_throwToScMain;
+    const ::sc_core::sc_report *_throwUp;
 
     bool
     starved()
     {
         return (readyListMethods.empty() && readyListThreads.empty() &&
                 updateList.empty() && deltas.empty() &&
-                (timeSlots.empty() || timeSlots.begin()->first > maxTick) &&
+                (timeSlots.empty() ||
+                 timeSlots.front()->targeted_when > maxTick) &&
                 initList.empty());
     }
     EventWrapper<Scheduler, &Scheduler::pause> starvationEvent;
@@ -479,6 +528,10 @@ class Scheduler
 
     ChannelList updateList;
 
+    ChannelList asyncUpdateList;
+    std::mutex asyncListMutex;
+    std::atomic<bool> hasAsyncUpdate;
+
     std::map<::Event *, Tick> eventsToSchedule;
 
     std::set<TraceFile *> traceFiles;
@@ -505,7 +558,7 @@ Scheduler::TimeSlot::process()
             scheduler.completeTimeSlot(this);
         else
             scheduler.schedule(this);
-        scheduler.throwToScMain();
+        scheduler.throwUp();
     }
 
     scheduler.status(StatusOther);

@@ -25,8 +25,6 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import print_function
-
 import os
 import sys
 
@@ -90,7 +88,8 @@ def main(args=None):
     output("SLICC v0.4")
     output("Parsing...")
 
-    protocol_base = os.path.join(os.path.dirname(__file__), '..', 'protocol')
+    protocol_base = os.path.join(os.path.dirname(__file__),
+                                 '..', 'ruby', 'protocol')
     slicc = SLICC(slicc_file, protocol_base, verbose=True, debug=opts.debug,
                   traceback=opts.tb)
 

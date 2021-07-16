@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #ifndef __CPU_TRAFFIC_GEN_PYGEN_HH__
@@ -50,7 +48,7 @@ struct PyTrafficGenParams;
 class M5_LOCAL PyTrafficGen : public BaseTrafficGen
 {
   public:
-    PyTrafficGen(const PyTrafficGenParams* p);
+    PyTrafficGen(const PyTrafficGenParams &p);
     ~PyTrafficGen() {}
 
   public: // Python API

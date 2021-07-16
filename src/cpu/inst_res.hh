@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 ARM Limited
+ * Copyright (c) 2016-2017 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathanael Premillieu
  */
 
 #ifndef __CPU_INST_RES_HH__
@@ -45,15 +43,15 @@
 #include "arch/generic/types.hh"
 #include "arch/generic/vec_reg.hh"
 
-class InstResult {
-    using VecRegContainer = TheISA::VecRegContainer;
-    using VecElem = TheISA::VecElem;
+class InstResult
+{
   public:
     union MultiResult {
         uint64_t integer;
         double dbl;
-        VecRegContainer vector;
-        VecElem vecElem;
+        TheISA::VecRegContainer vector;
+        TheISA::VecElem vecElem;
+        TheISA::VecPredRegContainer pred;
         MultiResult() {}
     };
 
@@ -61,6 +59,7 @@ class InstResult {
         Scalar,
         VecElem,
         VecReg,
+        VecPredReg,
         NumResultTypes,
         Invalid
     };
@@ -72,6 +71,7 @@ class InstResult {
   public:
     /** Default constructor creates an invalid result. */
     InstResult() : type(ResultType::Invalid) { }
+    InstResult(const InstResult &) = default;
     /** Scalar result from scalar. */
     template<typename T>
     explicit InstResult(T i, const ResultType& t) : type(t) {
@@ -85,8 +85,12 @@ class InstResult {
         }
     }
     /** Vector result. */
-    explicit InstResult(const VecRegContainer& v, const ResultType& t)
+    explicit InstResult(const TheISA::VecRegContainer& v, const ResultType& t)
         : type(t) { result.vector = v; }
+    /** Predicate result. */
+    explicit InstResult(const TheISA::VecPredRegContainer& v,
+            const ResultType& t)
+        : type(t) { result.pred = v; }
 
     InstResult& operator=(const InstResult& that) {
         type = that.type;
@@ -104,6 +108,10 @@ class InstResult {
         case ResultType::VecReg:
             result.vector = that.result.vector;
             break;
+        case ResultType::VecPredReg:
+            result.pred = that.result.pred;
+            break;
+
         default:
             panic("Assigning result from unknown result type");
             break;
@@ -124,6 +132,8 @@ class InstResult {
             return result.vecElem == that.result.vecElem;
         case ResultType::VecReg:
             return result.vector == that.result.vector;
+        case ResultType::VecPredReg:
+            return result.pred == that.result.pred;
         case ResultType::Invalid:
             return false;
         default:
@@ -143,6 +153,8 @@ class InstResult {
     bool isVector() const { return type == ResultType::VecReg; }
     /** Is this a vector element result?. */
     bool isVecElem() const { return type == ResultType::VecElem; }
+    /** Is this a predicate result?. */
+    bool isPred() const { return type == ResultType::VecPredReg; }
     /** Is this a valid result?. */
     bool isValid() const { return type != ResultType::Invalid; }
     /** @} */
@@ -165,18 +177,26 @@ class InstResult {
     {
         return result.integer;
     }
-    const VecRegContainer&
+    const TheISA::VecRegContainer&
     asVector() const
     {
         panic_if(!isVector(), "Converting scalar (or invalid) to vector!!");
         return result.vector;
     }
-    const VecElem&
+    const TheISA::VecElem&
     asVectorElem() const
     {
         panic_if(!isVecElem(), "Converting scalar (or invalid) to vector!!");
         return result.vecElem;
     }
+
+    const TheISA::VecPredRegContainer&
+    asPred() const
+    {
+        panic_if(!isPred(), "Converting scalar (or invalid) to predicate!!");
+        return result.pred;
+    }
+
     /** @} */
 };
 

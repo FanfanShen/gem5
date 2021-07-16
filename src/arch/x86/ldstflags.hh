@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_X86_LDSTFLAGS_HH__
@@ -48,7 +46,7 @@
  */
 namespace X86ISA
 {
-    const Request::FlagsType M5_VAR_USED SegmentFlagMask = mask(4);
+    M5_VAR_USED const Request::FlagsType SegmentFlagMask = mask(4);
     const int FlagShift = 4;
     enum FlagBit {
         CPL0FlagBit = 1,

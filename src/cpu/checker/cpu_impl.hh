@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Geoffrey Blake
  */
 
 #ifndef __CPU_CHECKER_CPU_IMPL_HH__
@@ -48,8 +45,6 @@
 #include <list>
 #include <string>
 
-#include "arch/isa_traits.hh"
-#include "arch/vtophys.hh"
 #include "base/refcnt.hh"
 #include "config/the_isa.hh"
 #include "cpu/base_dyn_inst.hh"
@@ -63,9 +58,6 @@
 #include "sim/full_system.hh"
 #include "sim/sim_object.hh"
 #include "sim/stats.hh"
-
-using namespace std;
-using namespace TheISA;
 
 template <class Impl>
 void
@@ -201,15 +193,12 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
         while (!result.empty()) {
             result.pop();
         }
-        numCycles++;
+        baseStats.numCycles++;
 
         Fault fault = NoFault;
 
         // maintain $r0 semantics
-        thread->setIntReg(ZeroReg, 0);
-#if THE_ISA == ALPHA_ISA
-        thread->setFloatReg(ZeroReg, 0.0);
-#endif
+        thread->setIntReg(TheISA::ZeroReg, 0);
 
         // Check if any recent PC changes match up with anything we
         // expect to happen.  This is mostly to check if traps or
@@ -239,21 +228,20 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
             Addr fetch_PC = thread->instAddr();
             fetch_PC = (fetch_PC & PCMask) + fetchOffset;
 
-            MachInst machInst;
+            TheISA::MachInst machInst;
 
             // If not in the middle of a macro instruction
             if (!curMacroStaticInst) {
                 // set up memory request for instruction fetch
                 auto mem_req = std::make_shared<Request>(
-                    unverifiedInst->threadNumber, fetch_PC,
-                    sizeof(MachInst), 0, masterId, fetch_PC,
-                    thread->contextId());
+                    fetch_PC, sizeof(TheISA::MachInst), 0, requestorId,
+                    fetch_PC, thread->contextId());
 
-                mem_req->setVirt(0, fetch_PC, sizeof(MachInst),
-                                 Request::INST_FETCH, masterId,
+                mem_req->setVirt(fetch_PC, sizeof(TheISA::MachInst),
+                                 Request::INST_FETCH, requestorId,
                                  thread->instAddr());
 
-                fault = itb->translateFunctional(
+                fault = mmu->translateFunctional(
                     mem_req, tc, BaseTLB::Execute);
 
                 if (fault != NoFault) {
@@ -285,7 +273,6 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
 
                     pkt->dataStatic(&machInst);
                     icachePort->sendFunctional(pkt);
-                    machInst = gtoh(machInst);
 
                     delete pkt;
                 }
@@ -296,8 +283,8 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
 
                 if (isRomMicroPC(pcState.microPC())) {
                     fetchDone = true;
-                    curStaticInst =
-                        microcodeRom.fetchMicroop(pcState.microPC(), NULL);
+                    curStaticInst = thread->decoder.fetchRomMicroop(
+                            pcState.microPC(), nullptr);
                 } else if (!curMacroStaticInst) {
                     //We're not in the middle of a macro instruction
                     StaticInstPtr instPtr = nullptr;
@@ -412,7 +399,7 @@ Checker<Impl>::verify(const DynInstPtr &completed_inst)
             int count = 0;
             do {
                 oldpc = thread->instAddr();
-                system->pcEventQueue.service(tc);
+                thread->pcEventQueue.service(oldpc, tc);
                 count++;
             } while (oldpc != thread->instAddr());
             if (count > 1) {
@@ -609,7 +596,7 @@ Checker<Impl>::copyResult(const DynInstPtr &inst,
             break;
           case FloatRegClass:
             panic_if(!mismatch_val.isScalar(), "Unexpected type of result");
-            thread->setFloatRegBits(idx.index(), mismatch_val.asInteger());
+            thread->setFloatReg(idx.index(), mismatch_val.asInteger());
             break;
           case VecRegClass:
             panic_if(!mismatch_val.isVector(), "Unexpected type of result");
@@ -644,7 +631,7 @@ Checker<Impl>::copyResult(const DynInstPtr &inst,
             break;
           case FloatRegClass:
             panic_if(!res.isScalar(), "Unexpected type of result");
-            thread->setFloatRegBits(idx.index(), res.asInteger());
+            thread->setFloatReg(idx.index(), res.asInteger());
             break;
           case VecRegClass:
             panic_if(!res.isVector(), "Unexpected type of result");

@@ -1,4 +1,5 @@
 # Copyright (c) 2008 The Hewlett-Packard Development Company
+# Copyright (c) 2018 Metempsy Technology Consulting
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -23,12 +24,18 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Gabe Black
 
+from m5.params import *
 from m5.SimObject import SimObject
 
 class BaseTLB(SimObject):
     type = 'BaseTLB'
     abstract = True
     cxx_header = "arch/generic/tlb.hh"
+    # Ports to connect with other TLB levels
+    cpu_side_ports  = VectorResponsePort("Ports closer to the CPU side")
+    slave     = DeprecatedParam(cpu_side_ports,
+                    '`slave` is now called `cpu_side_ports`')
+    mem_side_port = RequestPort("Port closer to memory side")
+    master   = DeprecatedParam(mem_side_port,
+                    '`master` is now called `mem_side_port`')

@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 /** @file
@@ -40,15 +38,13 @@
 #include "mem/packet_access.hh"
 #include "sim/system.hh"
 
-using namespace std;
-
-IsaFake::IsaFake(Params *p)
-    : BasicPioDevice(p, p->ret_bad_addr ? 0 : p->pio_size)
+IsaFake::IsaFake(const Params &p)
+    : BasicPioDevice(p, p.ret_bad_addr ? 0 : p.pio_size)
 {
-    retData8 = p->ret_data8;
-    retData16 = p->ret_data16;
-    retData32 = p->ret_data32;
-    retData64 = p->ret_data64;
+    retData8 = p.ret_data8;
+    retData16 = p.ret_data16;
+    retData32 = p.ret_data32;
+    retData64 = p.ret_data64;
 }
 
 Tick
@@ -56,10 +52,10 @@ IsaFake::read(PacketPtr pkt)
 {
     pkt->makeAtomicResponse();
 
-    if (params()->warn_access != "")
+    if (params().warn_access != "")
         warn("Device %s accessed by read to address %#x size=%d\n",
                 name(), pkt->getAddr(), pkt->getSize());
-    if (params()->ret_bad_addr) {
+    if (params().ret_bad_addr) {
         DPRINTF(IsaFake, "read to bad address va=%#x size=%d\n",
                 pkt->getAddr(), pkt->getSize());
         pkt->setBadAddress();
@@ -81,7 +77,7 @@ IsaFake::read(PacketPtr pkt)
              pkt->setLE(retData8);
              break;
           default:
-             if (params()->fake_mem)
+             if (params().fake_mem)
                  std::memset(pkt->getPtr<uint8_t>(), 0, pkt->getSize());
              else
                  panic("invalid access size! Device being accessed by cache?\n");
@@ -94,7 +90,7 @@ Tick
 IsaFake::write(PacketPtr pkt)
 {
     pkt->makeAtomicResponse();
-    if (params()->warn_access != "") {
+    if (params().warn_access != "") {
         uint64_t data;
         switch (pkt->getSize()) {
           case sizeof(uint64_t):
@@ -115,7 +111,7 @@ IsaFake::write(PacketPtr pkt)
         warn("Device %s accessed by write to address %#x size=%d data=%#x\n",
                 name(), pkt->getAddr(), pkt->getSize(), data);
     }
-    if (params()->ret_bad_addr) {
+    if (params().ret_bad_addr) {
         DPRINTF(IsaFake, "write to bad address va=%#x size=%d \n",
                 pkt->getAddr(), pkt->getSize());
         pkt->setBadAddress();
@@ -123,7 +119,7 @@ IsaFake::write(PacketPtr pkt)
         DPRINTF(IsaFake, "write - va=%#x size=%d \n",
                 pkt->getAddr(), pkt->getSize());
 
-        if (params()->update_data) {
+        if (params().update_data) {
             switch (pkt->getSize()) {
               case sizeof(uint64_t):
                 retData64 = pkt->getLE<uint64_t>();
@@ -143,10 +139,4 @@ IsaFake::write(PacketPtr pkt)
         }
     }
     return pioDelay;
-}
-
-IsaFake *
-IsaFakeParams::create()
-{
-    return new IsaFake(this);
 }

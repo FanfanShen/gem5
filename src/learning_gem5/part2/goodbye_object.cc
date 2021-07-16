@@ -24,21 +24,20 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Jason Lowe-Power
  */
 
 #include "learning_gem5/part2/goodbye_object.hh"
 
+#include "base/trace.hh"
 #include "debug/HelloExample.hh"
 #include "sim/sim_exit.hh"
 
-GoodbyeObject::GoodbyeObject(GoodbyeObjectParams *params) :
+GoodbyeObject::GoodbyeObject(const GoodbyeObjectParams &params) :
     SimObject(params), event([this]{ processEvent(); }, name() + ".event"),
-    bandwidth(params->write_bandwidth), bufferSize(params->buffer_size),
+    bandwidth(params.write_bandwidth), bufferSize(params.buffer_size),
     buffer(nullptr), bufferUsed(0)
 {
-    buffer = new char[bufferSize];
+    buffer = new char[bufferSize]();
     DPRINTF(HelloExample, "Created the goodbye object\n");
 }
 
@@ -94,10 +93,4 @@ GoodbyeObject::fillBuffer()
         // Be sure to take into account the time for the last bytes
         exitSimLoop(buffer, 0, curTick() + bandwidth * bytes_copied);
     }
-}
-
-GoodbyeObject*
-GoodbyeObjectParams::create()
-{
-    return new GoodbyeObject(this);
 }

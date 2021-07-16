@@ -25,15 +25,13 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Korey Sewell
  */
 
 #ifndef __ARCH_MIPS_REGISTERS_HH__
 #define __ARCH_MIPS_REGISTERS_HH__
 
+#include "arch/generic/vec_pred_reg.hh"
 #include "arch/generic/vec_reg.hh"
-#include "arch/mips/generated/max_inst_regs.hh"
 #include "base/logging.hh"
 #include "base/types.hh"
 
@@ -41,10 +39,6 @@ class ThreadContext;
 
 namespace MipsISA
 {
-
-using MipsISAInst::MaxInstSrcRegs;
-using MipsISAInst::MaxInstDestRegs;
-using MipsISAInst::MaxMiscDestRegs;
 
 // Constants Related to the number of registers
 const int NumIntArchRegs = 32;
@@ -55,6 +49,10 @@ const int NumFloatSpecialRegs = 5;
 const int MaxShadowRegSets = 16; // Maximum number of shadow register sets
 const int NumIntRegs = NumIntArchRegs + NumIntSpecialRegs;        //HI & LO Regs
 const int NumFloatRegs = NumFloatArchRegs + NumFloatSpecialRegs;//
+const int NumVecRegs = 1;  // Not applicable to MIPS
+                           // (1 to prevent warnings)
+const int NumVecPredRegs = 1;  // Not applicable to MIPS
+                               // (1 to prevent warnings)
 const int NumCCRegs = 0;
 
 const uint32_t MIPS32_QNAN = 0x7fbfffff;
@@ -103,17 +101,11 @@ enum MiscIntRegNums {
 
 // semantically meaningful register indices
 const int ZeroReg = 0;
-const int AssemblerReg = 1;
 const int SyscallSuccessReg = 7;
 const int FirstArgumentReg = 4;
 const int ReturnValueReg = 2;
 
-const int KernelReg0 = 26;
-const int KernelReg1 = 27;
-const int GlobalPointerReg = 28;
 const int StackPointerReg = 29;
-const int FramePointerReg = 30;
-const int ReturnAddressReg = 31;
 
 const int SyscallPseudoReturnReg = 3;
 
@@ -276,28 +268,20 @@ enum MiscRegIndex{
 
 const int NumMiscRegs = MISCREG_NUMREGS;
 
-const int TotalNumRegs = NumIntRegs + NumFloatRegs + NumMiscRegs;
+// Not applicable to MIPS
+using VecElem = ::DummyVecElem;
+using VecReg = ::DummyVecReg;
+using ConstVecReg = ::DummyConstVecReg;
+using VecRegContainer = ::DummyVecRegContainer;
+constexpr unsigned NumVecElemPerVecReg = ::DummyNumVecElemPerVecReg;
+constexpr size_t VecRegSizeBytes = ::DummyVecRegSizeBytes;
 
-typedef uint64_t IntReg;
-
-// floating point register file entry type
-typedef uint64_t FloatRegBits;
-typedef double FloatReg;
-
-// cop-0/cop-1 system control register
-typedef uint64_t MiscReg;
-
-// dummy typedef since we don't have CC regs
-typedef uint8_t CCReg;
-
-// dummy typedefs since we don't have vector regs
-constexpr unsigned NumVecElemPerVecReg = 2;
-using VecElem = uint32_t;
-using VecReg = ::VecRegT<VecElem, NumVecElemPerVecReg, false>;
-using ConstVecReg = ::VecRegT<VecElem, NumVecElemPerVecReg, true>;
-using VecRegContainer = VecReg::Container;
-// This has to be one to prevent warnings that are treated as errors
-constexpr unsigned NumVecRegs = 1;
+// Not applicable to MIPS
+using VecPredReg = ::DummyVecPredReg;
+using ConstVecPredReg = ::DummyConstVecPredReg;
+using VecPredRegContainer = ::DummyVecPredRegContainer;
+constexpr size_t VecPredRegSizeBits = ::DummyVecPredRegSizeBits;
+constexpr bool VecPredRegHasPackedRepr = ::DummyVecPredRegHasPackedRepr;
 
 } // namespace MipsISA
 

@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __SYSTEMC_EXT_CHANNEL_SC_IN_HH__
@@ -83,6 +81,7 @@ class sc_in : public sc_port<sc_signal_in_if<T>, 1>
         _valueChangedFinder(*this, &sc_signal_in_if<T>::value_changed_event)
     {}
 
+    using sc_port<sc_signal_in_if<T>, 1>::bind;
     virtual void
     bind(const sc_signal_in_if<T> &i)
     {

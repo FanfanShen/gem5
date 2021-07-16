@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Gabe Black
  */
 
 #include "arch/sparc/insts/blockmem.hh"
@@ -35,7 +32,8 @@ namespace SparcISA
 {
 
 std::string
-BlockMemMicro::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+BlockMemMicro::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream response;
     bool load = flags[IsLoad];
@@ -43,24 +41,25 @@ BlockMemMicro::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 
     printMnemonic(response, mnemonic);
     if (save) {
-        printReg(response, _srcRegIdx[0]);
+        printReg(response, srcRegIdx(0));
         ccprintf(response, ", ");
     }
     ccprintf(response, "[ ");
-    printReg(response, _srcRegIdx[!save ? 0 : 1]);
+    printReg(response, srcRegIdx(!save ? 0 : 1));
     ccprintf(response, " + ");
-    printReg(response, _srcRegIdx[!save ? 1 : 2]);
+    printReg(response, srcRegIdx(!save ? 1 : 2));
     ccprintf(response, " ]");
     if (load) {
         ccprintf(response, ", ");
-        printReg(response, _destRegIdx[0]);
+        printReg(response, destRegIdx(0));
     }
 
     return response.str();
 }
 
 std::string
-BlockMemImmMicro::generateDisassembly(Addr pc, const SymbolTable *symtab) const
+BlockMemImmMicro::generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const
 {
     std::stringstream response;
     bool load = flags[IsLoad];
@@ -68,18 +67,18 @@ BlockMemImmMicro::generateDisassembly(Addr pc, const SymbolTable *symtab) const
 
     printMnemonic(response, mnemonic);
     if (save) {
-        printReg(response, _srcRegIdx[1]);
+        printReg(response, srcRegIdx(1));
         ccprintf(response, ", ");
     }
     ccprintf(response, "[ ");
-    printReg(response, _srcRegIdx[0]);
+    printReg(response, srcRegIdx(0));
     if (imm >= 0)
         ccprintf(response, " + 0x%x ]", imm);
     else
         ccprintf(response, " + -0x%x ]", -imm);
     if (load) {
         ccprintf(response, ", ");
-        printReg(response, _destRegIdx[0]);
+        printReg(response, destRegIdx(0));
     }
 
     return response.str();

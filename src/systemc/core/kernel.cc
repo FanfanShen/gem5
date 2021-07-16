@@ -23,8 +23,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #include "systemc/core/kernel.hh"
@@ -56,7 +54,7 @@ bool Kernel::endOfSimulationComplete() { return endComplete; }
 sc_core::sc_status Kernel::status() { return _status; }
 void Kernel::status(sc_core::sc_status s) { _status = s; }
 
-Kernel::Kernel(Params *params) :
+Kernel::Kernel(const Params &params, int) :
     SimObject(params), t0Event(this, false, EventBase::Default_Pri - 1)
 {
     // Install ourselves as the scheduler's event manager.
@@ -103,7 +101,7 @@ Kernel::regStats()
         for (auto c: sc_gem5::allChannels)
             c->sc_chan()->end_of_elaboration();
     } catch (...) {
-        ::sc_gem5::scheduler.throwToScMain();
+        ::sc_gem5::scheduler.throwUp();
     }
 }
 
@@ -127,7 +125,7 @@ Kernel::startup()
         for (auto c: sc_gem5::allChannels)
             c->sc_chan()->start_of_simulation();
     } catch (...) {
-        ::sc_gem5::scheduler.throwToScMain();
+        ::sc_gem5::scheduler.throwUp();
     }
 
     startComplete = true;
@@ -159,7 +157,7 @@ Kernel::stopWork()
         for (auto c: sc_gem5::allChannels)
             c->sc_chan()->end_of_simulation();
     } catch (...) {
-        ::sc_gem5::scheduler.throwToScMain();
+        ::sc_gem5::scheduler.throwUp();
     }
 
     endComplete = true;
@@ -185,10 +183,10 @@ Kernel *kernel;
 } // namespace sc_gem5
 
 sc_gem5::Kernel *
-SystemC_KernelParams::create()
+SystemC_KernelParams::create() const
 {
     panic_if(sc_gem5::kernel,
             "Only one systemc kernel object may be defined.\n");
-    sc_gem5::kernel = new sc_gem5::Kernel(this);
+    sc_gem5::kernel = new sc_gem5::Kernel(*this, 0);
     return sc_gem5::kernel;
 }

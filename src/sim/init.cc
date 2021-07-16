@@ -37,8 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 #include <Python.h>
@@ -51,7 +49,9 @@
 #include <iostream>
 #include <list>
 #include <string>
+#include <vector>
 
+#include "base/compiler.hh"
 #include "base/cprintf.hh"
 #include "base/logging.hh"
 #include "base/types.hh"
@@ -65,7 +65,6 @@
 
 #endif
 
-using namespace std;
 namespace py = pybind11;
 
 // The python library is totally messed up with respect to constness,
@@ -81,16 +80,16 @@ EmbeddedPython::EmbeddedPython(const char *filename, const char *abspath,
 {
     // if we've added the importer keep track of it because we need it
     // to bootstrap.
-    if (string(modpath) == string("importer"))
+    if (std::string(modpath) == std::string("importer"))
         importer = this;
     else
         getList().push_back(this);
 }
 
-list<EmbeddedPython *> &
+std::list<EmbeddedPython *> &
 EmbeddedPython::getList()
 {
-    static list<EmbeddedPython *> the_list;
+    static std::list<EmbeddedPython *> the_list;
     return the_list;
 }
 
@@ -142,8 +141,8 @@ EmbeddedPython::initAll()
 
     // Load the rest of the embedded python files into the embedded
     // python importer
-    list<EmbeddedPython *>::iterator i = getList().begin();
-    list<EmbeddedPython *>::iterator end = getList().end();
+    std::list<EmbeddedPython *>::iterator i = getList().begin();
+    std::list<EmbeddedPython *>::iterator end = getList().end();
     for (; i != end; ++i)
         if (!(*i)->addModule())
             return 1;
@@ -152,7 +151,7 @@ EmbeddedPython::initAll()
 }
 
 EmbeddedPyBind::EmbeddedPyBind(const char *_name,
-                               void (*init_func)(py::module &),
+                               void (*init_func)(py::module_ &),
                                const char *_base)
     : initFunc(init_func), registered(false), name(_name), base(_base)
 {
@@ -160,14 +159,14 @@ EmbeddedPyBind::EmbeddedPyBind(const char *_name,
 }
 
 EmbeddedPyBind::EmbeddedPyBind(const char *_name,
-                               void (*init_func)(py::module &))
+                               void (*init_func)(py::module_ &))
     : initFunc(init_func), registered(false), name(_name), base("")
 {
     getMap()[_name] = this;
 }
 
 void
-EmbeddedPyBind::init(py::module &m)
+EmbeddedPyBind::init(py::module_ &m)
 {
     if (!registered) {
         initFunc(m);
@@ -190,19 +189,22 @@ EmbeddedPyBind::getMap()
     return objs;
 }
 
+#if PY_MAJOR_VERSION >= 3
+PyObject *
+#else
 void
+#endif
 EmbeddedPyBind::initAll()
 {
     std::list<EmbeddedPyBind *> pending;
 
-    py::module m_m5 = py::module("_m5");
+    py::module_ m_m5 = py::module_("_m5");
     m_m5.attr("__package__") = py::cast("_m5");
 
     pybind_init_core(m_m5);
     pybind_init_debug(m_m5);
 
     pybind_init_event(m_m5);
-    pybind_init_pyobject(m_m5);
     pybind_init_stats(m_m5);
 
     for (auto &kv : getMap()) {
@@ -225,20 +227,25 @@ EmbeddedPyBind::initAll()
             }
         }
     }
+
+#if PY_MAJOR_VERSION >= 3
+    return m_m5.ptr();
+#endif
 }
 
-int
-initM5Python()
+void
+registerNativeModules()
 {
-    EmbeddedPyBind::initAll();
-    return EmbeddedPython::initAll();
+    auto result = PyImport_AppendInittab("_m5", EmbeddedPyBind::initAll);
+    if (result == -1)
+        panic("Failed to add _m5 to Python's inittab\n");
 }
 
 /*
  * Make the commands array weak so that they can be overridden (used
  * by unit tests to specify a different python main function.
  */
-const char * __attribute__((weak)) m5MainCommands[] = {
+M5_WEAK const char *m5MainCommands[] = {
     "import m5",
     "m5.main()",
     0 // sentinel is required
@@ -249,13 +256,30 @@ const char * __attribute__((weak)) m5MainCommands[] = {
  * main function.
  */
 int
-m5Main(int argc, char **argv)
+m5Main(int argc, char **_argv)
 {
 #if HAVE_PROTOBUF
     // Verify that the version of the protobuf library that we linked
     // against is compatible with the version of the headers we
     // compiled against.
     GOOGLE_PROTOBUF_VERIFY_VERSION;
+#endif
+
+
+#if PY_MAJOR_VERSION >= 3
+    typedef std::unique_ptr<wchar_t[], decltype(&PyMem_RawFree)> WArgUPtr;
+    std::vector<WArgUPtr> v_argv;
+    std::vector<wchar_t *> vp_argv;
+    v_argv.reserve(argc);
+    vp_argv.reserve(argc);
+    for (int i = 0; i < argc; i++) {
+        v_argv.emplace_back(Py_DecodeLocale(_argv[i], NULL), &PyMem_RawFree);
+        vp_argv.emplace_back(v_argv.back().get());
+    }
+
+    wchar_t **argv = vp_argv.data();
+#else
+    char **argv = _argv;
 #endif
 
     PySys_SetArgv(argc, argv);
@@ -288,11 +312,4 @@ m5Main(int argc, char **argv)
 #endif
 
     return 0;
-}
-
-PyMODINIT_FUNC
-initm5(void)
-{
-    initM5Python();
-    PyImport_ImportModule(PyCC("m5"));
 }

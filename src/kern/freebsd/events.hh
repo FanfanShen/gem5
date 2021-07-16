@@ -34,15 +34,20 @@
 #define __KERN_FREEBSD_EVENTS_HH__
 
 #include "kern/system_events.hh"
+#include "sim/guest_abi.hh"
 
-namespace FreeBSD {
+namespace FreeBSD
+{
+
+void onUDelay(ThreadContext *tc, uint64_t div, uint64_t mul, uint64_t time);
 
 /** A class to skip udelay() and related calls in the kernel.
- * This class has two additional parameters that take the argument to udelay and
- * manipulated it to come up with ns and eventually ticks to quiesce for.
+ * This class has two additional parameters that take the argument to udelay
+ * and manipulated it to come up with ns and eventually ticks to quiesce for.
  * See descriptions of argDivToNs and argMultToNs below.
  */
-class UDelayEvent : public SkipFuncEvent
+template <typename ABI, typename Base>
+class SkipUDelay : public Base
 {
   private:
     /** value to divide arg by to create ns. This is present beacues the linux
@@ -57,10 +62,23 @@ class UDelayEvent : public SkipFuncEvent
     uint64_t argMultToNs;
 
   public:
-    UDelayEvent(PCEventQueue *q, const std::string &desc, Addr addr,
-            uint64_t mult, uint64_t div)
-        : SkipFuncEvent(q, desc, addr), argDivToNs(div), argMultToNs(mult) {}
-    virtual void process(ThreadContext *xc);
+    SkipUDelay(PCEventScope *s, const std::string &desc, Addr addr,
+               uint64_t mult, uint64_t div) :
+        Base(s, desc, addr), argDivToNs(div), argMultToNs(mult)
+    {}
+
+    void
+    process(ThreadContext *tc) override
+    {
+        // Use Addr since it's handled specially and will act as a natively
+        // sized data type.
+        std::function<void(ThreadContext *, Addr)> call_udelay =
+            [this](ThreadContext *tc, Addr time) {
+            onUDelay(tc, argDivToNs, argMultToNs, time);
+        };
+        invokeSimcall<ABI>(tc, call_udelay);
+        Base::process(tc);
+    }
 };
 
 }

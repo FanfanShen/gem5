@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012, 2016 ARM Limited
+ * Copyright (c) 2012, 2016-2017 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved
  *
@@ -37,18 +37,15 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
  */
 
 #include "cpu/thread_context.hh"
 
-#include "arch/kernel_stats.hh"
+#include "arch/generic/vec_pred_reg.hh"
 #include "base/logging.hh"
 #include "base/trace.hh"
 #include "config/the_isa.hh"
 #include "cpu/base.hh"
-#include "cpu/quiesce_event.hh"
 #include "debug/Context.hh"
 #include "debug/Quiesce.hh"
 #include "params/BaseCPU.hh"
@@ -61,8 +58,8 @@ ThreadContext::compare(ThreadContext *one, ThreadContext *two)
 
     // First loop through the integer registers.
     for (int i = 0; i < TheISA::NumIntRegs; ++i) {
-        TheISA::IntReg t1 = one->readIntReg(i);
-        TheISA::IntReg t2 = two->readIntReg(i);
+        RegVal t1 = one->readIntReg(i);
+        RegVal t2 = two->readIntReg(i);
         if (t1 != t2)
             panic("Int reg idx %d doesn't match, one: %#x, two: %#x",
                   i, t1, t2);
@@ -70,8 +67,8 @@ ThreadContext::compare(ThreadContext *one, ThreadContext *two)
 
     // Then loop through the floating point registers.
     for (int i = 0; i < TheISA::NumFloatRegs; ++i) {
-        TheISA::FloatRegBits t1 = one->readFloatRegBits(i);
-        TheISA::FloatRegBits t2 = two->readFloatRegBits(i);
+        RegVal t1 = one->readFloatReg(i);
+        RegVal t2 = two->readFloatReg(i);
         if (t1 != t2)
             panic("Float reg idx %d doesn't match, one: %#x, two: %#x",
                   i, t1, t2);
@@ -86,9 +83,20 @@ ThreadContext::compare(ThreadContext *one, ThreadContext *two)
             panic("Vec reg idx %d doesn't match, one: %#x, two: %#x",
                   i, t1, t2);
     }
+
+    // Then loop through the predicate registers.
+    for (int i = 0; i < TheISA::NumVecPredRegs; ++i) {
+        RegId rid(VecPredRegClass, i);
+        const TheISA::VecPredRegContainer& t1 = one->readVecPredReg(rid);
+        const TheISA::VecPredRegContainer& t2 = two->readVecPredReg(rid);
+        if (t1 != t2)
+            panic("Pred reg idx %d doesn't match, one: %#x, two: %#x",
+                  i, t1, t2);
+    }
+
     for (int i = 0; i < TheISA::NumMiscRegs; ++i) {
-        TheISA::MiscReg t1 = one->readMiscRegNoEffect(i);
-        TheISA::MiscReg t2 = two->readMiscRegNoEffect(i);
+        RegVal t1 = one->readMiscRegNoEffect(i);
+        RegVal t2 = two->readMiscRegNoEffect(i);
         if (t1 != t2)
             panic("Misc reg idx %d doesn't match, one: %#x, two: %#x",
                   i, t1, t2);
@@ -96,8 +104,8 @@ ThreadContext::compare(ThreadContext *one, ThreadContext *two)
 
     // loop through the Condition Code registers.
     for (int i = 0; i < TheISA::NumCCRegs; ++i) {
-        TheISA::CCReg t1 = one->readCCReg(i);
-        TheISA::CCReg t2 = two->readCCReg(i);
+        RegVal t1 = one->readCCReg(i);
+        RegVal t2 = two->readCCReg(i);
         if (t1 != t2)
             panic("CC reg idx %d doesn't match, one: %#x, two: %#x",
                   i, t1, t2);
@@ -120,65 +128,50 @@ ThreadContext::compare(ThreadContext *one, ThreadContext *two)
 void
 ThreadContext::quiesce()
 {
-    if (!getCpuPtr()->params()->do_quiesce)
-        return;
-
-    DPRINTF(Quiesce, "%s: quiesce()\n", getCpuPtr()->name());
-
-    suspend();
-    if (getKernelStats())
-       getKernelStats()->quiesce();
+    getSystemPtr()->threads.quiesce(contextId());
 }
 
 
 void
 ThreadContext::quiesceTick(Tick resume)
 {
-    BaseCPU *cpu = getCpuPtr();
-
-    if (!cpu->params()->do_quiesce)
-        return;
-
-    EndQuiesceEvent *quiesceEvent = getQuiesceEvent();
-
-    cpu->reschedule(quiesceEvent, resume, true);
-
-    DPRINTF(Quiesce, "%s: quiesceTick until %lu\n", cpu->name(), resume);
-
-    suspend();
-    if (getKernelStats())
-        getKernelStats()->quiesce();
+    getSystemPtr()->threads.quiesceTick(contextId(), resume);
 }
 
 void
-serialize(ThreadContext &tc, CheckpointOut &cp)
+serialize(const ThreadContext &tc, CheckpointOut &cp)
 {
-    using namespace TheISA;
-
-    FloatRegBits floatRegs[NumFloatRegs];
-    for (int i = 0; i < NumFloatRegs; ++i)
-        floatRegs[i] = tc.readFloatRegBitsFlat(i);
+    RegVal floatRegs[TheISA::NumFloatRegs];
+    for (int i = 0; i < TheISA::NumFloatRegs; ++i)
+        floatRegs[i] = tc.readFloatRegFlat(i);
     // This is a bit ugly, but needed to maintain backwards
     // compatibility.
-    arrayParamOut(cp, "floatRegs.i", floatRegs, NumFloatRegs);
+    arrayParamOut(cp, "floatRegs.i", floatRegs, TheISA::NumFloatRegs);
 
-    std::vector<TheISA::VecRegContainer> vecRegs(NumVecRegs);
-    for (int i = 0; i < NumVecRegs; ++i) {
+    std::vector<TheISA::VecRegContainer> vecRegs(TheISA::NumVecRegs);
+    for (int i = 0; i < TheISA::NumVecRegs; ++i) {
         vecRegs[i] = tc.readVecRegFlat(i);
     }
     SERIALIZE_CONTAINER(vecRegs);
 
-    IntReg intRegs[NumIntRegs];
-    for (int i = 0; i < NumIntRegs; ++i)
-        intRegs[i] = tc.readIntRegFlat(i);
-    SERIALIZE_ARRAY(intRegs, NumIntRegs);
+    std::vector<TheISA::VecPredRegContainer>
+        vecPredRegs(TheISA::NumVecPredRegs);
+    for (int i = 0; i < TheISA::NumVecPredRegs; ++i) {
+        vecPredRegs[i] = tc.readVecPredRegFlat(i);
+    }
+    SERIALIZE_CONTAINER(vecPredRegs);
 
-#ifdef ISA_HAS_CC_REGS
-    CCReg ccRegs[NumCCRegs];
-    for (int i = 0; i < NumCCRegs; ++i)
-        ccRegs[i] = tc.readCCRegFlat(i);
-    SERIALIZE_ARRAY(ccRegs, NumCCRegs);
-#endif
+    RegVal intRegs[TheISA::NumIntRegs];
+    for (int i = 0; i < TheISA::NumIntRegs; ++i)
+        intRegs[i] = tc.readIntRegFlat(i);
+    SERIALIZE_ARRAY(intRegs, TheISA::NumIntRegs);
+
+    if (TheISA::NumCCRegs) {
+        RegVal ccRegs[TheISA::NumCCRegs];
+        for (int i = 0; i < TheISA::NumCCRegs; ++i)
+            ccRegs[i] = tc.readCCRegFlat(i);
+        SERIALIZE_ARRAY(ccRegs, TheISA::NumCCRegs);
+    }
 
     tc.pcState().serialize(cp);
 
@@ -188,34 +181,39 @@ serialize(ThreadContext &tc, CheckpointOut &cp)
 void
 unserialize(ThreadContext &tc, CheckpointIn &cp)
 {
-    using namespace TheISA;
-
-    FloatRegBits floatRegs[NumFloatRegs];
+    RegVal floatRegs[TheISA::NumFloatRegs];
     // This is a bit ugly, but needed to maintain backwards
     // compatibility.
-    arrayParamIn(cp, "floatRegs.i", floatRegs, NumFloatRegs);
-    for (int i = 0; i < NumFloatRegs; ++i)
-        tc.setFloatRegBitsFlat(i, floatRegs[i]);
+    arrayParamIn(cp, "floatRegs.i", floatRegs, TheISA::NumFloatRegs);
+    for (int i = 0; i < TheISA::NumFloatRegs; ++i)
+        tc.setFloatRegFlat(i, floatRegs[i]);
 
-    std::vector<TheISA::VecRegContainer> vecRegs(NumVecRegs);
+    std::vector<TheISA::VecRegContainer> vecRegs(TheISA::NumVecRegs);
     UNSERIALIZE_CONTAINER(vecRegs);
-    for (int i = 0; i < NumVecRegs; ++i) {
+    for (int i = 0; i < TheISA::NumVecRegs; ++i) {
         tc.setVecRegFlat(i, vecRegs[i]);
     }
 
-    IntReg intRegs[NumIntRegs];
-    UNSERIALIZE_ARRAY(intRegs, NumIntRegs);
-    for (int i = 0; i < NumIntRegs; ++i)
+    std::vector<TheISA::VecPredRegContainer>
+        vecPredRegs(TheISA::NumVecPredRegs);
+    UNSERIALIZE_CONTAINER(vecPredRegs);
+    for (int i = 0; i < TheISA::NumVecPredRegs; ++i) {
+        tc.setVecPredRegFlat(i, vecPredRegs[i]);
+    }
+
+    RegVal intRegs[TheISA::NumIntRegs];
+    UNSERIALIZE_ARRAY(intRegs, TheISA::NumIntRegs);
+    for (int i = 0; i < TheISA::NumIntRegs; ++i)
         tc.setIntRegFlat(i, intRegs[i]);
 
-#ifdef ISA_HAS_CC_REGS
-    CCReg ccRegs[NumCCRegs];
-    UNSERIALIZE_ARRAY(ccRegs, NumCCRegs);
-    for (int i = 0; i < NumCCRegs; ++i)
-        tc.setCCRegFlat(i, ccRegs[i]);
-#endif
+    if (TheISA::NumCCRegs) {
+        RegVal ccRegs[TheISA::NumCCRegs];
+        UNSERIALIZE_ARRAY(ccRegs, TheISA::NumCCRegs);
+        for (int i = 0; i < TheISA::NumCCRegs; ++i)
+            tc.setCCRegFlat(i, ccRegs[i]);
+    }
 
-    PCState pcState;
+    TheISA::PCState pcState;
     pcState.unserialize(cp);
     tc.pcState(pcState);
 
@@ -232,26 +230,8 @@ takeOverFrom(ThreadContext &ntc, ThreadContext &otc)
     ntc.setContextId(otc.contextId());
     ntc.setThreadId(otc.threadId());
 
-    if (FullSystem) {
+    if (FullSystem)
         assert(ntc.getSystemPtr() == otc.getSystemPtr());
-
-        BaseCPU *ncpu(ntc.getCpuPtr());
-        assert(ncpu);
-        EndQuiesceEvent *oqe(otc.getQuiesceEvent());
-        assert(oqe);
-        assert(oqe->tc == &otc);
-
-        BaseCPU *ocpu(otc.getCpuPtr());
-        assert(ocpu);
-        EndQuiesceEvent *nqe(ntc.getQuiesceEvent());
-        assert(nqe);
-        assert(nqe->tc == &ntc);
-
-        if (oqe->scheduled()) {
-            ncpu->schedule(nqe, oqe->when());
-            ocpu->deschedule(oqe);
-        }
-    }
 
     otc.setStatus(ThreadContext::Halted);
 }

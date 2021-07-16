@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2014 ARM Limited
+ * Copyright (c) 2011-2014, 2017-2020 ARM Limited
  * Copyright (c) 2013 Advanced Micro Devices, Inc.
  * All rights reserved.
  *
@@ -37,9 +37,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Korey Sewell
  */
 
 #ifndef __CPU_O3_INST_QUEUE_IMPL_HH__
@@ -86,24 +83,27 @@ InstructionQueue<Impl>::FUCompletion::description() const
 
 template <class Impl>
 InstructionQueue<Impl>::InstructionQueue(O3CPU *cpu_ptr, IEW *iew_ptr,
-                                         DerivO3CPUParams *params)
+                                         const DerivO3CPUParams &params)
     : cpu(cpu_ptr),
       iewStage(iew_ptr),
-      fuPool(params->fuPool),
-      numEntries(params->numIQEntries),
-      totalWidth(params->issueWidth),
-      commitToIEWDelay(params->commitToIEWDelay)
+      fuPool(params.fuPool),
+      iqPolicy(params.smtIQPolicy),
+      numThreads(params.numThreads),
+      numEntries(params.numIQEntries),
+      totalWidth(params.issueWidth),
+      commitToIEWDelay(params.commitToIEWDelay),
+      iqStats(cpu, totalWidth),
+      iqIOStats(cpu)
 {
     assert(fuPool);
 
-    numThreads = params->numThreads;
-
     // Set the number of total physical registers
     // As the vector registers have two addressing modes, they are added twice
-    numPhysRegs = params->numPhysIntRegs + params->numPhysFloatRegs +
-                    params->numPhysVecRegs +
-                    params->numPhysVecRegs * TheISA::NumVecElemPerVecReg +
-                    params->numPhysCCRegs;
+    numPhysRegs = params.numPhysIntRegs + params.numPhysFloatRegs +
+                    params.numPhysVecRegs +
+                    params.numPhysVecRegs * TheISA::NumVecElemPerVecReg +
+                    params.numPhysVecPredRegs +
+                    params.numPhysCCRegs;
 
     //Create an entry for each physical register within the
     //dependency graph.
@@ -114,30 +114,20 @@ InstructionQueue<Impl>::InstructionQueue(O3CPU *cpu_ptr, IEW *iew_ptr,
 
     //Initialize Mem Dependence Units
     for (ThreadID tid = 0; tid < Impl::MaxThreads; tid++) {
-        memDepUnit[tid].init(params, tid);
+        memDepUnit[tid].init(params, tid, cpu_ptr);
         memDepUnit[tid].setIQ(this);
     }
 
     resetState();
 
-    std::string policy = params->smtIQPolicy;
-
-    //Convert string to lowercase
-    std::transform(policy.begin(), policy.end(), policy.begin(),
-                   (int(*)(int)) tolower);
-
     //Figure out resource sharing policy
-    if (policy == "dynamic") {
-        iqPolicy = Dynamic;
-
+    if (iqPolicy == SMTQueuePolicy::Dynamic) {
         //Set Max Entries to Total ROB Capacity
         for (ThreadID tid = 0; tid < numThreads; tid++) {
             maxEntries[tid] = numEntries;
         }
 
-    } else if (policy == "partitioned") {
-        iqPolicy = Partitioned;
-
+    } else if (iqPolicy == SMTQueuePolicy::Partitioned) {
         //@todo:make work if part_amt doesnt divide evenly.
         int part_amt = numEntries / numThreads;
 
@@ -148,10 +138,8 @@ InstructionQueue<Impl>::InstructionQueue(O3CPU *cpu_ptr, IEW *iew_ptr,
 
         DPRINTF(IQ, "IQ sharing policy set to Partitioned:"
                 "%i entries per thread.\n",part_amt);
-    } else if (policy == "threshold") {
-        iqPolicy = Threshold;
-
-        double threshold =  (double)params->smtIQThreshold / 100;
+    } else if (iqPolicy == SMTQueuePolicy::Threshold) {
+        double threshold =  (double)params.smtIQThreshold / 100;
 
         int thresholdIQ = (int)((double)threshold * numEntries);
 
@@ -162,9 +150,6 @@ InstructionQueue<Impl>::InstructionQueue(O3CPU *cpu_ptr, IEW *iew_ptr,
 
         DPRINTF(IQ, "IQ sharing policy set to Threshold:"
                 "%i entries per thread.\n",thresholdIQ);
-   } else {
-       panic("Invalid IQ sharing policy. Options are: Dynamic, "
-              "Partitioned, Threshold");
    }
     for (ThreadID tid = numThreads; tid < Impl::MaxThreads; tid++) {
         maxEntries[tid] = 0;
@@ -189,71 +174,80 @@ InstructionQueue<Impl>::name() const
 }
 
 template <class Impl>
-void
-InstructionQueue<Impl>::regStats()
+InstructionQueue<Impl>::
+IQStats::IQStats(O3CPU *cpu, const unsigned &total_width)
+    : Stats::Group(cpu),
+    ADD_STAT(instsAdded, UNIT_COUNT,
+             "Number of instructions added to the IQ (excludes non-spec)"),
+    ADD_STAT(nonSpecInstsAdded, UNIT_COUNT,
+             "Number of non-speculative instructions added to the IQ"),
+    ADD_STAT(instsIssued, UNIT_COUNT, "Number of instructions issued"),
+    ADD_STAT(intInstsIssued, UNIT_COUNT,
+             "Number of integer instructions issued"),
+    ADD_STAT(floatInstsIssued, UNIT_COUNT,
+             "Number of float instructions issued"),
+    ADD_STAT(branchInstsIssued, UNIT_COUNT,
+             "Number of branch instructions issued"),
+    ADD_STAT(memInstsIssued, UNIT_COUNT,
+             "Number of memory instructions issued"),
+    ADD_STAT(miscInstsIssued, UNIT_COUNT,
+             "Number of miscellaneous instructions issued"),
+    ADD_STAT(squashedInstsIssued, UNIT_COUNT,
+             "Number of squashed instructions issued"),
+    ADD_STAT(squashedInstsExamined, UNIT_COUNT,
+             "Number of squashed instructions iterated over during squash; "
+             "mainly for profiling"),
+    ADD_STAT(squashedOperandsExamined, UNIT_COUNT,
+             "Number of squashed operands that are examined and possibly "
+             "removed from graph"),
+    ADD_STAT(squashedNonSpecRemoved, UNIT_COUNT,
+             "Number of squashed non-spec instructions that were removed"),
+    ADD_STAT(numIssuedDist, UNIT_COUNT, "Number of insts issued each cycle"),
+    ADD_STAT(statFuBusy, UNIT_COUNT,
+             "attempts to use FU when none available"),
+    ADD_STAT(statIssuedInstType, UNIT_COUNT,
+             "Number of instructions issued per FU type, per thread"),
+    ADD_STAT(issueRate, UNIT_RATE(Stats::Units::Count, Stats::Units::Cycle),
+             "Inst issue rate", instsIssued / cpu->baseStats.numCycles),
+    ADD_STAT(fuBusy, UNIT_COUNT, "FU busy when requested"),
+    ADD_STAT(fuBusyRate, UNIT_RATE(Stats::Units::Count, Stats::Units::Count),
+             "FU busy rate (busy events/executed inst)")
 {
-    using namespace Stats;
-    iqInstsAdded
-        .name(name() + ".iqInstsAdded")
-        .desc("Number of instructions added to the IQ (excludes non-spec)")
-        .prereq(iqInstsAdded);
+    instsAdded
+        .prereq(instsAdded);
 
-    iqNonSpecInstsAdded
-        .name(name() + ".iqNonSpecInstsAdded")
-        .desc("Number of non-speculative instructions added to the IQ")
-        .prereq(iqNonSpecInstsAdded);
+    nonSpecInstsAdded
+        .prereq(nonSpecInstsAdded);
 
-    iqInstsIssued
-        .name(name() + ".iqInstsIssued")
-        .desc("Number of instructions issued")
-        .prereq(iqInstsIssued);
+    instsIssued
+        .prereq(instsIssued);
 
-    iqIntInstsIssued
-        .name(name() + ".iqIntInstsIssued")
-        .desc("Number of integer instructions issued")
-        .prereq(iqIntInstsIssued);
+    intInstsIssued
+        .prereq(intInstsIssued);
 
-    iqFloatInstsIssued
-        .name(name() + ".iqFloatInstsIssued")
-        .desc("Number of float instructions issued")
-        .prereq(iqFloatInstsIssued);
+    floatInstsIssued
+        .prereq(floatInstsIssued);
 
-    iqBranchInstsIssued
-        .name(name() + ".iqBranchInstsIssued")
-        .desc("Number of branch instructions issued")
-        .prereq(iqBranchInstsIssued);
+    branchInstsIssued
+        .prereq(branchInstsIssued);
 
-    iqMemInstsIssued
-        .name(name() + ".iqMemInstsIssued")
-        .desc("Number of memory instructions issued")
-        .prereq(iqMemInstsIssued);
+    memInstsIssued
+        .prereq(memInstsIssued);
 
-    iqMiscInstsIssued
-        .name(name() + ".iqMiscInstsIssued")
-        .desc("Number of miscellaneous instructions issued")
-        .prereq(iqMiscInstsIssued);
+    miscInstsIssued
+        .prereq(miscInstsIssued);
 
-    iqSquashedInstsIssued
-        .name(name() + ".iqSquashedInstsIssued")
-        .desc("Number of squashed instructions issued")
-        .prereq(iqSquashedInstsIssued);
+    squashedInstsIssued
+        .prereq(squashedInstsIssued);
 
-    iqSquashedInstsExamined
-        .name(name() + ".iqSquashedInstsExamined")
-        .desc("Number of squashed instructions iterated over during squash;"
-              " mainly for profiling")
-        .prereq(iqSquashedInstsExamined);
+    squashedInstsExamined
+        .prereq(squashedInstsExamined);
 
-    iqSquashedOperandsExamined
-        .name(name() + ".iqSquashedOperandsExamined")
-        .desc("Number of squashed operands that are examined and possibly "
-              "removed from graph")
-        .prereq(iqSquashedOperandsExamined);
+    squashedOperandsExamined
+        .prereq(squashedOperandsExamined);
 
-    iqSquashedNonSpecRemoved
-        .name(name() + ".iqSquashedNonSpecRemoved")
-        .desc("Number of squashed non-spec instructions that were removed")
-        .prereq(iqSquashedNonSpecRemoved);
+    squashedNonSpecRemoved
+        .prereq(squashedNonSpecRemoved);
 /*
     queueResDist
         .init(Num_OpClasses, 0, 99, 2)
@@ -266,10 +260,8 @@ InstructionQueue<Impl>::regStats()
     }
 */
     numIssuedDist
-        .init(0,totalWidth,1)
-        .name(name() + ".issued_per_cycle")
-        .desc("Number of insts issued each cycle")
-        .flags(pdf)
+        .init(0,total_width,1)
+        .flags(Stats::pdf)
         ;
 /*
     dist_unissued
@@ -283,10 +275,8 @@ InstructionQueue<Impl>::regStats()
     }
 */
     statIssuedInstType
-        .init(numThreads,Enums::Num_OpClass)
-        .name(name() + ".FU_type")
-        .desc("Type of FU issued")
-        .flags(total | pdf | dist)
+        .init(cpu->numThreads,Enums::Num_OpClass)
+        .flags(Stats::total | Stats::pdf | Stats::dist)
         ;
     statIssuedInstType.ysubnames(Enums::OpClassStrings);
 
@@ -300,7 +290,6 @@ InstructionQueue<Impl>::regStats()
         .desc("cycles from operands ready to issue")
         .flags(pdf | cdf)
         ;
-
     for (int i=0; i<Num_OpClasses; ++i) {
         std::stringstream subname;
         subname << opClassStrings[i] << "_delay";
@@ -308,101 +297,91 @@ InstructionQueue<Impl>::regStats()
     }
 */
     issueRate
-        .name(name() + ".rate")
-        .desc("Inst issue rate")
-        .flags(total)
+        .flags(Stats::total)
         ;
-    issueRate = iqInstsIssued / cpu->numCycles;
 
     statFuBusy
         .init(Num_OpClasses)
-        .name(name() + ".fu_full")
-        .desc("attempts to use FU when none available")
-        .flags(pdf | dist)
+        .flags(Stats::pdf | Stats::dist)
         ;
     for (int i=0; i < Num_OpClasses; ++i) {
         statFuBusy.subname(i, Enums::OpClassStrings[i]);
     }
 
     fuBusy
-        .init(numThreads)
-        .name(name() + ".fu_busy_cnt")
-        .desc("FU busy when requested")
-        .flags(total)
+        .init(cpu->numThreads)
+        .flags(Stats::total)
         ;
 
     fuBusyRate
-        .name(name() + ".fu_busy_rate")
-        .desc("FU busy rate (busy events/executed inst)")
-        .flags(total)
+        .flags(Stats::total)
         ;
-    fuBusyRate = fuBusy / iqInstsIssued;
+    fuBusyRate = fuBusy / instsIssued;
+}
 
-    for (ThreadID tid = 0; tid < numThreads; tid++) {
-        // Tell mem dependence unit to reg stats as well.
-        memDepUnit[tid].regStats();
-    }
-
+template <class Impl>
+InstructionQueue<Impl>::
+IQIOStats::IQIOStats(Stats::Group *parent)
+    : Stats::Group(parent),
+    ADD_STAT(intInstQueueReads, UNIT_COUNT,
+             "Number of integer instruction queue reads"),
+    ADD_STAT(intInstQueueWrites, UNIT_COUNT,
+             "Number of integer instruction queue writes"),
+    ADD_STAT(intInstQueueWakeupAccesses, UNIT_COUNT,
+             "Number of integer instruction queue wakeup accesses"),
+    ADD_STAT(fpInstQueueReads, UNIT_COUNT,
+             "Number of floating instruction queue reads"),
+    ADD_STAT(fpInstQueueWrites, UNIT_COUNT,
+             "Number of floating instruction queue writes"),
+    ADD_STAT(fpInstQueueWakeupAccesses, UNIT_COUNT,
+             "Number of floating instruction queue wakeup accesses"),
+    ADD_STAT(vecInstQueueReads, UNIT_COUNT,
+             "Number of vector instruction queue reads"),
+    ADD_STAT(vecInstQueueWrites, UNIT_COUNT,
+             "Number of vector instruction queue writes"),
+    ADD_STAT(vecInstQueueWakeupAccesses, UNIT_COUNT,
+             "Number of vector instruction queue wakeup accesses"),
+    ADD_STAT(intAluAccesses, UNIT_COUNT, "Number of integer alu accesses"),
+    ADD_STAT(fpAluAccesses, UNIT_COUNT,
+             "Number of floating point alu accesses"),
+    ADD_STAT(vecAluAccesses, UNIT_COUNT, "Number of vector alu accesses")
+{
+    using namespace Stats;
     intInstQueueReads
-        .name(name() + ".int_inst_queue_reads")
-        .desc("Number of integer instruction queue reads")
         .flags(total);
 
     intInstQueueWrites
-        .name(name() + ".int_inst_queue_writes")
-        .desc("Number of integer instruction queue writes")
         .flags(total);
 
     intInstQueueWakeupAccesses
-        .name(name() + ".int_inst_queue_wakeup_accesses")
-        .desc("Number of integer instruction queue wakeup accesses")
         .flags(total);
 
     fpInstQueueReads
-        .name(name() + ".fp_inst_queue_reads")
-        .desc("Number of floating instruction queue reads")
         .flags(total);
 
     fpInstQueueWrites
-        .name(name() + ".fp_inst_queue_writes")
-        .desc("Number of floating instruction queue writes")
         .flags(total);
 
     fpInstQueueWakeupAccesses
-        .name(name() + ".fp_inst_queue_wakeup_accesses")
-        .desc("Number of floating instruction queue wakeup accesses")
         .flags(total);
 
     vecInstQueueReads
-        .name(name() + ".vec_inst_queue_reads")
-        .desc("Number of vector instruction queue reads")
         .flags(total);
 
     vecInstQueueWrites
-        .name(name() + ".vec_inst_queue_writes")
-        .desc("Number of vector instruction queue writes")
         .flags(total);
 
     vecInstQueueWakeupAccesses
-        .name(name() + ".vec_inst_queue_wakeup_accesses")
-        .desc("Number of vector instruction queue wakeup accesses")
         .flags(total);
 
     intAluAccesses
-        .name(name() + ".int_alu_accesses")
-        .desc("Number of integer alu accesses")
         .flags(total);
 
     fpAluAccesses
-        .name(name() + ".fp_alu_accesses")
-        .desc("Number of floating point alu accesses")
         .flags(total);
 
     vecAluAccesses
-        .name(name() + ".vec_alu_accesses")
-        .desc("Number of vector alu accesses")
         .flags(total);
-
 }
 
 template <class Impl>
@@ -502,7 +481,7 @@ template <class Impl>
 int
 InstructionQueue<Impl>::entryAmount(ThreadID num_threads)
 {
-    if (iqPolicy == Partitioned) {
+    if (iqPolicy == SMTQueuePolicy::Partitioned) {
         return numEntries / num_threads;
     } else {
         return 0;
@@ -514,7 +493,7 @@ template <class Impl>
 void
 InstructionQueue<Impl>::resetEntries()
 {
-    if (iqPolicy != Dynamic || numThreads > 1) {
+    if (iqPolicy != SMTQueuePolicy::Dynamic || numThreads > 1) {
         int active_threads = activeThreads->size();
 
         list<ThreadID>::iterator threads = activeThreads->begin();
@@ -523,9 +502,10 @@ InstructionQueue<Impl>::resetEntries()
         while (threads != end) {
             ThreadID tid = *threads++;
 
-            if (iqPolicy == Partitioned) {
+            if (iqPolicy == SMTQueuePolicy::Partitioned) {
                 maxEntries[tid] = numEntries / active_threads;
-            } else if (iqPolicy == Threshold && active_threads == 1) {
+            } else if (iqPolicy == SMTQueuePolicy::Threshold &&
+                       active_threads == 1) {
                 maxEntries[tid] = numEntries;
             }
         }
@@ -592,16 +572,16 @@ void
 InstructionQueue<Impl>::insert(const DynInstPtr &new_inst)
 {
     if (new_inst->isFloating()) {
-        fpInstQueueWrites++;
+        iqIOStats.fpInstQueueWrites++;
     } else if (new_inst->isVector()) {
-        vecInstQueueWrites++;
+        iqIOStats.vecInstQueueWrites++;
     } else {
-        intInstQueueWrites++;
+        iqIOStats.intInstQueueWrites++;
     }
     // Make sure the instruction is valid
     assert(new_inst);
 
-    DPRINTF(IQ, "Adding instruction [sn:%lli] PC %s to the IQ.\n",
+    DPRINTF(IQ, "Adding instruction [sn:%llu] PC %s to the IQ.\n",
             new_inst->seqNum, new_inst->pcState());
 
     assert(freeEntries != 0);
@@ -626,7 +606,7 @@ InstructionQueue<Impl>::insert(const DynInstPtr &new_inst)
         addIfReady(new_inst);
     }
 
-    ++iqInstsAdded;
+    ++iqStats.instsAdded;
 
     count[new_inst->threadNumber]++;
 
@@ -640,18 +620,18 @@ InstructionQueue<Impl>::insertNonSpec(const DynInstPtr &new_inst)
     // @todo: Clean up this code; can do it by setting inst as unable
     // to issue, then calling normal insert on the inst.
     if (new_inst->isFloating()) {
-        fpInstQueueWrites++;
+        iqIOStats.fpInstQueueWrites++;
     } else if (new_inst->isVector()) {
-        vecInstQueueWrites++;
+        iqIOStats.vecInstQueueWrites++;
     } else {
-        intInstQueueWrites++;
+        iqIOStats.intInstQueueWrites++;
     }
 
     assert(new_inst);
 
     nonSpecInsts[new_inst->seqNum] = new_inst;
 
-    DPRINTF(IQ, "Adding non-speculative instruction [sn:%lli] PC %s "
+    DPRINTF(IQ, "Adding non-speculative instruction [sn:%llu] PC %s "
             "to the IQ.\n",
             new_inst->seqNum, new_inst->pcState());
 
@@ -673,7 +653,7 @@ InstructionQueue<Impl>::insertNonSpec(const DynInstPtr &new_inst)
         memDepUnit[new_inst->threadNumber].insertNonSpec(new_inst);
     }
 
-    ++iqNonSpecInstsAdded;
+    ++iqStats.nonSpecInstsAdded;
 
     count[new_inst->threadNumber]++;
 
@@ -697,11 +677,11 @@ InstructionQueue<Impl>::getInstToExecute()
     DynInstPtr inst = std::move(instsToExecute.front());
     instsToExecute.pop_front();
     if (inst->isFloating()) {
-        fpInstQueueReads++;
+        iqIOStats.fpInstQueueReads++;
     } else if (inst->isVector()) {
-        vecInstQueueReads++;
+        iqIOStats.vecInstQueueReads++;
     } else {
-        intInstQueueReads++;
+        iqIOStats.intInstQueueReads++;
     }
     return inst;
 }
@@ -763,7 +743,7 @@ template <class Impl>
 void
 InstructionQueue<Impl>::processFUCompletion(const DynInstPtr &inst, int fu_idx)
 {
-    DPRINTF(IQ, "Processing FU completion [sn:%lli]\n", inst->seqNum);
+    DPRINTF(IQ, "Processing FU completion [sn:%llu]\n", inst->seqNum);
     assert(!cpu->switchedOut());
     // The CPU could have been sleeping until this op completed (*extremely*
     // long latency op).  Wake it if it was.  This may be overkill.
@@ -793,12 +773,12 @@ InstructionQueue<Impl>::scheduleReadyInsts()
     IssueStruct *i2e_info = issueToExecuteQueue->access(0);
 
     DynInstPtr mem_inst;
-    while (mem_inst = std::move(getDeferredMemInstToExecute())) {
+    while ((mem_inst = std::move(getDeferredMemInstToExecute()))) {
         addReadyMemInst(mem_inst);
     }
 
     // See if any cache blocked instructions are able to be executed
-    while (mem_inst = std::move(getBlockedMemInstToExecute())) {
+    while ((mem_inst = std::move(getBlockedMemInstToExecute()))) {
         addReadyMemInst(mem_inst);
     }
 
@@ -822,11 +802,11 @@ InstructionQueue<Impl>::scheduleReadyInsts()
         DynInstPtr issuing_inst = readyInsts[op_class].top();
 
         if (issuing_inst->isFloating()) {
-            fpInstQueueReads++;
+            iqIOStats.fpInstQueueReads++;
         } else if (issuing_inst->isVector()) {
-            vecInstQueueReads++;
+            iqIOStats.vecInstQueueReads++;
         } else {
-            intInstQueueReads++;
+            iqIOStats.intInstQueueReads++;
         }
 
         assert(issuing_inst->seqNum == (*order_it).oldestInst);
@@ -843,7 +823,7 @@ InstructionQueue<Impl>::scheduleReadyInsts()
 
             listOrder.erase(order_it++);
 
-            ++iqSquashedInstsIssued;
+            ++iqStats.squashedInstsIssued;
 
             continue;
         }
@@ -855,11 +835,11 @@ InstructionQueue<Impl>::scheduleReadyInsts()
         if (op_class != No_OpClass) {
             idx = fuPool->getUnit(op_class);
             if (issuing_inst->isFloating()) {
-                fpAluAccesses++;
+                iqIOStats.fpAluAccesses++;
             } else if (issuing_inst->isVector()) {
-                vecAluAccesses++;
+                iqIOStats.vecAluAccesses++;
             } else {
-                intAluAccesses++;
+                iqIOStats.intAluAccesses++;
             }
             if (idx > FUPool::NoFreeFU) {
                 op_latency = fuPool->getOpLatency(op_class);
@@ -898,7 +878,7 @@ InstructionQueue<Impl>::scheduleReadyInsts()
             }
 
             DPRINTF(IQ, "Thread %i: Issuing instruction PC %s "
-                    "[sn:%lli]\n",
+                    "[sn:%llu]\n",
                     tid, issuing_inst->pcState(),
                     issuing_inst->seqNum);
 
@@ -929,16 +909,16 @@ InstructionQueue<Impl>::scheduleReadyInsts()
             }
 
             listOrder.erase(order_it++);
-            statIssuedInstType[tid][op_class]++;
+            iqStats.statIssuedInstType[tid][op_class]++;
         } else {
-            statFuBusy[op_class]++;
-            fuBusy[tid]++;
+            iqStats.statFuBusy[op_class]++;
+            iqStats.fuBusy[tid]++;
             ++order_it;
         }
     }
 
-    numIssuedDist.sample(total_issued);
-    iqInstsIssued+= total_issued;
+    iqStats.numIssuedDist.sample(total_issued);
+    iqStats.instsIssued+= total_issued;
 
     // If we issued any instructions, tell the CPU we had activity.
     // @todo If the way deferred memory instructions are handeled due to
@@ -955,7 +935,7 @@ template <class Impl>
 void
 InstructionQueue<Impl>::scheduleNonSpec(const InstSeqNum &inst)
 {
-    DPRINTF(IQ, "Marking nonspeculative instruction [sn:%lli] as ready "
+    DPRINTF(IQ, "Marking nonspeculative instruction [sn:%llu] as ready "
             "to execute.\n", inst);
 
     NonSpecMapIt inst_it = nonSpecInsts.find(inst);
@@ -983,7 +963,7 @@ template <class Impl>
 void
 InstructionQueue<Impl>::commit(const InstSeqNum &inst, ThreadID tid)
 {
-    DPRINTF(IQ, "[tid:%i]: Committing instructions older than [sn:%i]\n",
+    DPRINTF(IQ, "[tid:%i] Committing instructions older than [sn:%llu]\n",
             tid,inst);
 
     ListIt iq_it = instList[tid].begin();
@@ -1005,11 +985,11 @@ InstructionQueue<Impl>::wakeDependents(const DynInstPtr &completed_inst)
 
     // The instruction queue here takes care of both floating and int ops
     if (completed_inst->isFloating()) {
-        fpInstQueueWakeupAccesses++;
+        iqIOStats.fpInstQueueWakeupAccesses++;
     } else if (completed_inst->isVector()) {
-        vecInstQueueWakeupAccesses++;
+        iqIOStats.vecInstQueueWakeupAccesses++;
     } else {
-        intInstQueueWakeupAccesses++;
+        iqIOStats.intInstQueueWakeupAccesses++;
     }
 
     DPRINTF(IQ, "Waking dependents of completed instruction.\n");
@@ -1019,15 +999,20 @@ InstructionQueue<Impl>::wakeDependents(const DynInstPtr &completed_inst)
     // Tell the memory dependence unit to wake any dependents on this
     // instruction if it is a memory instruction.  Also complete the memory
     // instruction at this point since we know it executed without issues.
-    // @todo: Might want to rename "completeMemInst" to something that
-    // indicates that it won't need to be replayed, and call this
-    // earlier.  Might not be a big deal.
+    ThreadID tid = completed_inst->threadNumber;
     if (completed_inst->isMemRef()) {
-        memDepUnit[completed_inst->threadNumber].wakeDependents(completed_inst);
-        completeMemInst(completed_inst);
-    } else if (completed_inst->isMemBarrier() ||
+        memDepUnit[tid].completeInst(completed_inst);
+
+        DPRINTF(IQ, "Completing mem instruction PC: %s [sn:%llu]\n",
+            completed_inst->pcState(), completed_inst->seqNum);
+
+        ++freeEntries;
+        completed_inst->memOpDone(true);
+        count[tid]--;
+    } else if (completed_inst->isReadBarrier() ||
                completed_inst->isWriteBarrier()) {
-        memDepUnit[completed_inst->threadNumber].completeBarrier(completed_inst);
+        // Completes a non mem ref barrier
+        memDepUnit[tid].completeInst(completed_inst);
     }
 
     for (int dest_reg_idx = 0;
@@ -1035,12 +1020,23 @@ InstructionQueue<Impl>::wakeDependents(const DynInstPtr &completed_inst)
          dest_reg_idx++)
     {
         PhysRegIdPtr dest_reg =
-            completed_inst->renamedDestRegIdx(dest_reg_idx);
+            completed_inst->regs.renamedDestIdx(dest_reg_idx);
 
         // Special case of uniq or control registers.  They are not
         // handled by the IQ and thus have no dependency graph entry.
         if (dest_reg->isFixedMapping()) {
             DPRINTF(IQ, "Reg %d [%s] is part of a fix mapping, skipping\n",
+                    dest_reg->index(), dest_reg->className());
+            continue;
+        }
+
+        // Avoid waking up dependents if the register is pinned
+        dest_reg->decrNumPinnedWritesToComplete();
+        if (dest_reg->isPinned())
+            completed_inst->setPinnedRegsWritten();
+
+        if (dest_reg->getNumPinnedWritesToComplete() != 0) {
+            DPRINTF(IQ, "Reg %d [%s] is pinned, skipping\n",
                     dest_reg->index(), dest_reg->className());
             continue;
         }
@@ -1054,7 +1050,7 @@ InstructionQueue<Impl>::wakeDependents(const DynInstPtr &completed_inst)
         DynInstPtr dep_inst = dependGraph.pop(dest_reg->flatIndex());
 
         while (dep_inst) {
-            DPRINTF(IQ, "Waking up a dependent instruction, [sn:%lli] "
+            DPRINTF(IQ, "Waking up a dependent instruction, [sn:%llu] "
                     "PC %s.\n", dep_inst->seqNum, dep_inst->pcState());
 
             // Might want to give more information to the instruction
@@ -1100,7 +1096,7 @@ InstructionQueue<Impl>::addReadyMemInst(const DynInstPtr &ready_inst)
     }
 
     DPRINTF(IQ, "Instruction is ready to issue, putting it onto "
-            "the ready list, PC %s opclass:%i [sn:%lli].\n",
+            "the ready list, PC %s opclass:%i [sn:%llu].\n",
             ready_inst->pcState(), op_class, ready_inst->seqNum);
 }
 
@@ -1108,7 +1104,7 @@ template <class Impl>
 void
 InstructionQueue<Impl>::rescheduleMemInst(const DynInstPtr &resched_inst)
 {
-    DPRINTF(IQ, "Rescheduling mem inst [sn:%lli]\n", resched_inst->seqNum);
+    DPRINTF(IQ, "Rescheduling mem inst [sn:%llu]\n", resched_inst->seqNum);
 
     // Reset DTB translation state
     resched_inst->translationStarted(false);
@@ -1127,23 +1123,6 @@ InstructionQueue<Impl>::replayMemInst(const DynInstPtr &replay_inst)
 
 template <class Impl>
 void
-InstructionQueue<Impl>::completeMemInst(const DynInstPtr &completed_inst)
-{
-    ThreadID tid = completed_inst->threadNumber;
-
-    DPRINTF(IQ, "Completing mem instruction PC: %s [sn:%lli]\n",
-            completed_inst->pcState(), completed_inst->seqNum);
-
-    ++freeEntries;
-
-    completed_inst->memOpDone(true);
-
-    memDepUnit[tid].completed(completed_inst);
-    count[tid]--;
-}
-
-template <class Impl>
-void
 InstructionQueue<Impl>::deferMemInst(const DynInstPtr &deferred_inst)
 {
     deferredMemInsts.push_back(deferred_inst);
@@ -1153,9 +1132,6 @@ template <class Impl>
 void
 InstructionQueue<Impl>::blockMemInst(const DynInstPtr &blocked_inst)
 {
-    blocked_inst->translationStarted(false);
-    blocked_inst->translationCompleted(false);
-
     blocked_inst->clearIssued();
     blocked_inst->clearCanIssue();
     blockedMemInsts.push_back(blocked_inst);
@@ -1203,7 +1179,7 @@ void
 InstructionQueue<Impl>::violation(const DynInstPtr &store,
                                   const DynInstPtr &faulting_load)
 {
-    intInstQueueWrites++;
+    iqIOStats.intInstQueueWrites++;
     memDepUnit[store->threadNumber].violation(store, faulting_load);
 }
 
@@ -1211,7 +1187,7 @@ template <class Impl>
 void
 InstructionQueue<Impl>::squash(ThreadID tid)
 {
-    DPRINTF(IQ, "[tid:%i]: Starting to squash instructions in "
+    DPRINTF(IQ, "[tid:%i] Starting to squash instructions in "
             "the IQ.\n", tid);
 
     // Read instruction sequence number of last instruction out of the
@@ -1232,7 +1208,7 @@ InstructionQueue<Impl>::doSquash(ThreadID tid)
     ListIt squash_it = instList[tid].end();
     --squash_it;
 
-    DPRINTF(IQ, "[tid:%i]: Squashing until sequence number %i!\n",
+    DPRINTF(IQ, "[tid:%i] Squashing until sequence number %i!\n",
             tid, squashedSeqNum[tid]);
 
     // Squash any instructions younger than the squashed sequence number
@@ -1242,11 +1218,11 @@ InstructionQueue<Impl>::doSquash(ThreadID tid)
 
         DynInstPtr squashed_inst = (*squash_it);
         if (squashed_inst->isFloating()) {
-            fpInstQueueWrites++;
+            iqIOStats.fpInstQueueWrites++;
         } else if (squashed_inst->isVector()) {
-            vecInstQueueWrites++;
+            iqIOStats.vecInstQueueWrites++;
         } else {
-            intInstQueueWrites++;
+            iqIOStats.intInstQueueWrites++;
         }
 
         // Only handle the instruction if it actually is in the IQ and
@@ -1261,19 +1237,20 @@ InstructionQueue<Impl>::doSquash(ThreadID tid)
             (squashed_inst->isMemRef() &&
              !squashed_inst->memOpDone())) {
 
-            DPRINTF(IQ, "[tid:%i]: Instruction [sn:%lli] PC %s squashed.\n",
+            DPRINTF(IQ, "[tid:%i] Instruction [sn:%llu] PC %s squashed.\n",
                     tid, squashed_inst->seqNum, squashed_inst->pcState());
 
-            bool is_acq_rel = squashed_inst->isMemBarrier() &&
+            bool is_acq_rel = squashed_inst->isFullMemBarrier() &&
                          (squashed_inst->isLoad() ||
-                           (squashed_inst->isStore() &&
+                          (squashed_inst->isStore() &&
                              !squashed_inst->isStoreConditional()));
 
             // Remove the instruction from the dependency list.
             if (is_acq_rel ||
                 (!squashed_inst->isNonSpeculative() &&
                  !squashed_inst->isStoreConditional() &&
-                 !squashed_inst->isMemBarrier() &&
+                 !squashed_inst->isAtomic() &&
+                 !squashed_inst->isReadBarrier() &&
                  !squashed_inst->isWriteBarrier())) {
 
                 for (int src_reg_idx = 0;
@@ -1281,7 +1258,7 @@ InstructionQueue<Impl>::doSquash(ThreadID tid)
                      src_reg_idx++)
                 {
                     PhysRegIdPtr src_reg =
-                        squashed_inst->renamedSrcRegIdx(src_reg_idx);
+                        squashed_inst->regs.renamedSrcIdx(src_reg_idx);
 
                     // Only remove it from the dependency graph if it
                     // was placed there in the first place.
@@ -1292,15 +1269,15 @@ InstructionQueue<Impl>::doSquash(ThreadID tid)
                     // overwritten.  The only downside to this is it
                     // leaves more room for error.
 
-                    if (!squashed_inst->isReadySrcRegIdx(src_reg_idx) &&
+                    if (!squashed_inst->regs.readySrcIdx(src_reg_idx) &&
                         !src_reg->isFixedMapping()) {
                         dependGraph.remove(src_reg->flatIndex(),
                                            squashed_inst);
                     }
 
-
-                    ++iqSquashedOperandsExamined;
+                    ++iqStats.squashedOperandsExamined;
                 }
+
             } else if (!squashed_inst->isStoreConditional() ||
                        !squashed_inst->isCompleted()) {
                 NonSpecMapIt ns_inst_it =
@@ -1321,7 +1298,7 @@ InstructionQueue<Impl>::doSquash(ThreadID tid)
 
                     nonSpecInsts.erase(ns_inst_it);
 
-                    ++iqSquashedNonSpecRemoved;
+                    ++iqStats.squashedNonSpecRemoved;
                 }
             }
 
@@ -1354,7 +1331,7 @@ InstructionQueue<Impl>::doSquash(ThreadID tid)
              dest_reg_idx++)
         {
             PhysRegIdPtr dest_reg =
-                squashed_inst->renamedDestRegIdx(dest_reg_idx);
+                squashed_inst->regs.renamedDestIdx(dest_reg_idx);
             if (dest_reg->isFixedMapping()){
                 continue;
             }
@@ -1362,7 +1339,7 @@ InstructionQueue<Impl>::doSquash(ThreadID tid)
             dependGraph.clearInst(dest_reg->flatIndex());
         }
         instList[tid].erase(squash_it--);
-        ++iqSquashedInstsExamined;
+        ++iqStats.squashedInstsExamined;
     }
 }
 
@@ -1380,8 +1357,8 @@ InstructionQueue<Impl>::addToDependents(const DynInstPtr &new_inst)
          src_reg_idx++)
     {
         // Only add it to the dependency graph if it's not ready.
-        if (!new_inst->isReadySrcRegIdx(src_reg_idx)) {
-            PhysRegIdPtr src_reg = new_inst->renamedSrcRegIdx(src_reg_idx);
+        if (!new_inst->regs.readySrcIdx(src_reg_idx)) {
+            PhysRegIdPtr src_reg = new_inst->regs.renamedSrcIdx(src_reg_idx);
 
             // Check the IQ's scoreboard to make sure the register
             // hasn't become ready while the instruction was in flight
@@ -1428,7 +1405,7 @@ InstructionQueue<Impl>::addToProducers(const DynInstPtr &new_inst)
          dest_reg_idx < total_dest_regs;
          dest_reg_idx++)
     {
-        PhysRegIdPtr dest_reg = new_inst->renamedDestRegIdx(dest_reg_idx);
+        PhysRegIdPtr dest_reg = new_inst->regs.renamedDestIdx(dest_reg_idx);
 
         // Some registers have fixed mapping, and there is no need to track
         // dependencies as these instructions must be executed at commit.
@@ -1473,7 +1450,7 @@ InstructionQueue<Impl>::addIfReady(const DynInstPtr &inst)
         OpClass op_class = inst->opClass();
 
         DPRINTF(IQ, "Instruction is ready to issue, putting it onto "
-                "the ready list, PC %s opclass:%i [sn:%lli].\n",
+                "the ready list, PC %s opclass:%i [sn:%llu].\n",
                 inst->pcState(), op_class, inst->seqNum);
 
         readyInsts[op_class].push(inst);
@@ -1494,36 +1471,7 @@ template <class Impl>
 int
 InstructionQueue<Impl>::countInsts()
 {
-#if 0
-    //ksewell:This works but definitely could use a cleaner write
-    //with a more intuitive way of counting. Right now it's
-    //just brute force ....
-    // Change the #if if you want to use this method.
-    int total_insts = 0;
-
-    for (ThreadID tid = 0; tid < numThreads; ++tid) {
-        ListIt count_it = instList[tid].begin();
-
-        while (count_it != instList[tid].end()) {
-            if (!(*count_it)->isSquashed() && !(*count_it)->isSquashedInIQ()) {
-                if (!(*count_it)->isIssued()) {
-                    ++total_insts;
-                } else if ((*count_it)->isMemRef() &&
-                           !(*count_it)->memOpDone) {
-                    // Loads that have not been marked as executed still count
-                    // towards the total instructions.
-                    ++total_insts;
-                }
-            }
-
-            ++count_it;
-        }
-    }
-
-    return total_insts;
-#else
     return numEntries - freeEntries;
-#endif
 }
 
 template <class Impl>
@@ -1544,7 +1492,7 @@ InstructionQueue<Impl>::dumpLists()
     cprintf("Non speculative list: ");
 
     while (non_spec_it != non_spec_end_it) {
-        cprintf("%s [sn:%lli]", (*non_spec_it).second->pcState(),
+        cprintf("%s [sn:%llu]", (*non_spec_it).second->pcState(),
                 (*non_spec_it).second->seqNum);
         ++non_spec_it;
     }
@@ -1558,7 +1506,7 @@ InstructionQueue<Impl>::dumpLists()
     cprintf("List order: ");
 
     while (list_order_it != list_order_end_it) {
-        cprintf("%i OpClass:%i [sn:%lli] ", i, (*list_order_it).queueType,
+        cprintf("%i OpClass:%i [sn:%llu] ", i, (*list_order_it).queueType,
                 (*list_order_it).oldestInst);
 
         ++list_order_it;
@@ -1593,7 +1541,7 @@ InstructionQueue<Impl>::dumpInsts()
                 }
             }
 
-            cprintf("PC: %s\n[sn:%lli]\n[tid:%i]\n"
+            cprintf("PC: %s\n[sn:%llu]\n[tid:%i]\n"
                     "Issued:%i\nSquashed:%i\n",
                     (*inst_list_it)->pcState(),
                     (*inst_list_it)->seqNum,
@@ -1635,7 +1583,7 @@ InstructionQueue<Impl>::dumpInsts()
             }
         }
 
-        cprintf("PC: %s\n[sn:%lli]\n[tid:%i]\n"
+        cprintf("PC: %s\n[sn:%llu]\n[tid:%i]\n"
                 "Issued:%i\nSquashed:%i\n",
                 (*inst_list_it)->pcState(),
                 (*inst_list_it)->seqNum,

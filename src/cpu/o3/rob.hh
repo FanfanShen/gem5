@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Kevin Lim
- *          Korey Sewell
  */
 
 #ifndef __CPU_O3_ROB_HH__
@@ -51,6 +48,7 @@
 #include "arch/registers.hh"
 #include "base/types.hh"
 #include "config/the_isa.hh"
+#include "enums/SMTQueuePolicy.hh"
 
 struct DerivO3CPUParams;
 
@@ -75,26 +73,19 @@ class ROB
         ROBSquashing
     };
 
-    /** SMT ROB Sharing Policy */
-    enum ROBPolicy{
-        Dynamic,
-        Partitioned,
-        Threshold
-    };
-
   private:
     /** Per-thread ROB status. */
     Status robStatus[Impl::MaxThreads];
 
     /** ROB resource sharing policy for SMT mode. */
-    ROBPolicy robPolicy;
+    SMTQueuePolicy robPolicy;
 
   public:
     /** ROB constructor.
      *  @param _cpu   The cpu object pointer.
      *  @param params The cpu params including several ROB-specific parameters.
      */
-    ROB(O3CPU *_cpu, DerivO3CPUParams *params);
+    ROB(O3CPU *_cpu, const DerivO3CPUParams &params);
 
     std::string name() const;
 
@@ -264,10 +255,7 @@ class ROB
      *  threadEntries to get the instructions in the ROB unless you are
      *  double checking that variable.
      */
-    int countInsts(ThreadID tid);
-
-    /** Registers statistics. */
-    void regStats();
+    size_t countInsts(ThreadID tid);
 
   private:
     /** Reset the ROB state */
@@ -332,10 +320,15 @@ class ROB
     /** Number of active threads. */
     ThreadID numThreads;
 
-    // The number of rob_reads
-    Stats::Scalar robReads;
-    // The number of rob_writes
-    Stats::Scalar robWrites;
+
+    struct ROBStats : public Stats::Group {
+        ROBStats(Stats::Group *parent);
+
+        // The number of rob_reads
+        Stats::Scalar reads;
+        // The number of rob_writes
+        Stats::Scalar writes;
+    } stats;
 };
 
 #endif //__CPU_O3_ROB_HH__

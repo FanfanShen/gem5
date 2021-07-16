@@ -29,9 +29,6 @@
  * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Sooraj Puthoor,
- *          Anthony Gutierrez
  */
 
 #ifndef __GPU_COMPUTE_SCHEDULER_HH__
@@ -41,12 +38,12 @@
 
 #include "gpu-compute/scheduling_policy.hh"
 
-class ComputeUnitParams;
+struct ComputeUnitParams;
 
 class Scheduler
 {
   public:
-    Scheduler(const ComputeUnitParams *params);
+    Scheduler(const ComputeUnitParams &params);
     Wavefront *chooseWave();
     void bindList(std::vector<Wavefront*> *sched_list);
 

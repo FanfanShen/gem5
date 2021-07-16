@@ -24,11 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Lisa Hsu
- *          Nathan Binkert
- *          Steve Raasch
  */
 
 #include "cpu/inteltrace.hh"
@@ -39,33 +34,20 @@
 #include "cpu/exetrace.hh"
 #include "cpu/static_inst.hh"
 
-using namespace std;
-using namespace TheISA;
-
 namespace Trace {
 
 void
 Trace::IntelTraceRecord::dump()
 {
-    ostream &outs = Trace::output();
+    std::ostream &outs = Trace::output();
     ccprintf(outs, "%7d ) ", when);
-    outs << "0x" << hex << pc.instAddr() << ":\t";
+    outs << "0x" << std::hex << pc.instAddr() << ":\t";
     if (staticInst->isLoad()) {
         ccprintf(outs, "<RD %#x>", addr);
     } else if (staticInst->isStore()) {
         ccprintf(outs, "<WR %#x>", addr);
     }
-    outs << endl;
+    outs << std::endl;
 }
 
 } // namespace Trace
-
-////////////////////////////////////////////////////////////////////////
-//
-//  ExeTracer Simulation Object
-//
-Trace::IntelTrace *
-IntelTraceParams::create()
-{
-    return new Trace::IntelTrace(this);
-}

@@ -36,8 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stephen Hines
  */
 
 #ifndef __ARM_PROCESS_HH__
@@ -50,20 +48,20 @@
 #include "base/loader/object_file.hh"
 #include "mem/page_table.hh"
 #include "sim/process.hh"
-
-class ObjectFile;
+#include "sim/syscall_abi.hh"
 
 class ArmProcess : public Process
 {
   protected:
-    ObjectFile::Arch arch;
-    ArmProcess(ProcessParams * params, ObjectFile *objFile,
-               ObjectFile::Arch _arch);
+    ::Loader::Arch arch;
+    ArmProcess(const ProcessParams &params, ::Loader::ObjectFile *objFile,
+               ::Loader::Arch _arch);
     template<class IntType>
     void argsInit(int pageSize, ArmISA::IntRegIndex spIndex);
 
     template<class IntType>
-    IntType armHwcap() const
+    IntType
+    armHwcap() const
     {
         return static_cast<IntType>(armHwcapImpl());
     }
@@ -76,40 +74,28 @@ class ArmProcess : public Process
 
 class ArmProcess32 : public ArmProcess
 {
-  protected:
-    ArmProcess32(ProcessParams * params, ObjectFile *objFile,
-                 ObjectFile::Arch _arch);
+  public:
+    ArmProcess32(const ProcessParams &params, ::Loader::ObjectFile *objFile,
+                 ::Loader::Arch _arch);
 
+  protected:
     void initState() override;
 
     /** AArch32 AT_HWCAP */
     uint32_t armHwcapImpl() const override;
-
-  public:
-
-    ArmISA::IntReg getSyscallArg(ThreadContext *tc, int &i, int width) override;
-    ArmISA::IntReg getSyscallArg(ThreadContext *tc, int &i) override;
-    void setSyscallArg(ThreadContext *tc, int i, ArmISA::IntReg val) override;
-    void setSyscallReturn(ThreadContext *tc, SyscallReturn return_value) override;
 };
 
 class ArmProcess64 : public ArmProcess
 {
-  protected:
-    ArmProcess64(ProcessParams * params, ObjectFile *objFile,
-                 ObjectFile::Arch _arch);
+  public:
+    ArmProcess64(const ProcessParams &params, ::Loader::ObjectFile *objFile,
+                 ::Loader::Arch _arch);
 
+  protected:
     void initState() override;
 
     /** AArch64 AT_HWCAP */
     uint32_t armHwcapImpl() const override;
-
-  public:
-
-    ArmISA::IntReg getSyscallArg(ThreadContext *tc, int &i, int width) override;
-    ArmISA::IntReg getSyscallArg(ThreadContext *tc, int &i) override;
-    void setSyscallArg(ThreadContext *tc, int i, ArmISA::IntReg val) override;
-    void setSyscallReturn(ThreadContext *tc, SyscallReturn return_value) override;
 };
 
 #endif // __ARM_PROCESS_HH__

@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 /**
@@ -46,6 +44,8 @@
 
 #ifndef __CPU_MINOR_DECODE_HH__
 #define __CPU_MINOR_DECODE_HH__
+
+#include <vector>
 
 #include "cpu/minor/buffers.hh"
 #include "cpu/minor/cpu.hh"
@@ -140,7 +140,7 @@ class Decode : public Named
   public:
     Decode(const std::string &name,
         MinorCPU &cpu_,
-        MinorCPUParams &params,
+        const MinorCPUParams &params,
         Latch<ForwardInstData>::Output inp_,
         Latch<ForwardInstData>::Input out_,
         std::vector<InputBuffer<ForwardInstData>> &next_stage_input_buffer);

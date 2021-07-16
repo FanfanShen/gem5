@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Thomas Grocutt
  */
 
 #include "arch/arm/stage2_mmu.hh"
@@ -48,16 +46,16 @@
 
 using namespace ArmISA;
 
-Stage2MMU::Stage2MMU(const Params *p)
-    : SimObject(p), _stage1Tlb(p->tlb), _stage2Tlb(p->stage2_tlb),
-      port(_stage1Tlb->getTableWalker(), p->sys),
-      masterId(p->sys->getMasterId(_stage1Tlb->getTableWalker()))
+Stage2MMU::Stage2MMU(const Params &p)
+    : SimObject(p), _stage1Tlb(p.tlb), _stage2Tlb(p.stage2_tlb),
+      port(_stage1Tlb->getTableWalker(), p.sys),
+      requestorId(p.sys->getRequestorId(_stage1Tlb->getTableWalker()))
 {
     // we use the stage-one table walker as the parent of the port,
-    // and to get our master id, this is done to keep things
+    // and to get our requestor id, this is done to keep things
     // symmetrical with other ISAs in terms of naming and stats
-    stage1Tlb()->setMMU(this, masterId);
-    stage2Tlb()->setMMU(this, masterId);
+    stage1Tlb()->setMMU(this, requestorId);
+    stage2Tlb()->setMMU(this, requestorId);
 }
 
 Fault
@@ -68,7 +66,8 @@ Stage2MMU::readDataUntimed(ThreadContext *tc, Addr oVAddr, Addr descAddr,
 
     // translate to physical address using the second stage MMU
     auto req = std::make_shared<Request>();
-    req->setVirt(0, descAddr, numBytes, flags | Request::PT_WALK, masterId, 0);
+    req->setVirt(descAddr, numBytes, flags | Request::PT_WALK,
+                requestorId, 0);
     if (isFunctional) {
         fault = stage2Tlb()->translateFunctional(req, tc, BaseTLB::Read);
     } else {
@@ -104,7 +103,7 @@ Stage2MMU::readDataTimed(ThreadContext *tc, Addr descAddr,
 {
     // translate to physical address using the second stage MMU
     translation->setVirt(
-            descAddr, numBytes, flags | Request::PT_WALK, masterId);
+            descAddr, numBytes, flags | Request::PT_WALK, requestorId);
     translation->translateTiming(tc);
 }
 
@@ -132,18 +131,12 @@ Stage2MMU::Stage2Translation::finish(const Fault &_fault,
     }
 
     if (_fault == NoFault && !req->getFlags().isSet(Request::NO_ACCESS)) {
-        parent.getPort().dmaAction(MemCmd::ReadReq, req->getPaddr(), numBytes,
-                                   event, data, tc->getCpuPtr()->clockPeriod(),
-                                   req->getFlags());
+        parent.getDMAPort().dmaAction(
+            MemCmd::ReadReq, req->getPaddr(), numBytes, event, data,
+            tc->getCpuPtr()->clockPeriod(), req->getFlags());
     } else {
         // We can't do the DMA access as there's been a problem, so tell the
         // event we're done
         event->process();
     }
-}
-
-ArmISA::Stage2MMU *
-ArmStage2MMUParams::create()
-{
-    return new ArmISA::Stage2MMU(this);
 }

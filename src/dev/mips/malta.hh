@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Rick Strong
  */
 
 /**
@@ -82,7 +79,7 @@ class Malta : public Platform
      * @param intctrl pointer to the interrupt controller
      */
     typedef MaltaParams Params;
-    Malta(const Params *p);
+    Malta(const Params &p);
 
     /**
      * Cause the cpu to post a serial interrupt to the CPU.
@@ -111,21 +108,18 @@ class Malta : public Platform
     calcPciConfigAddr(int bus, int dev, int func)
     {
         panic("Need implementation\n");
-        M5_DUMMY_RETURN
     }
 
     Addr
     calcPciIOAddr(Addr addr)
     {
         panic("Need implementation\n");
-        M5_DUMMY_RETURN
     }
 
     Addr
     calcPciMemAddr(Addr addr)
     {
         panic("Need implementation\n");
-        M5_DUMMY_RETURN
     }
 
     void serialize(CheckpointOut &cp) const override;

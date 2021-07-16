@@ -34,8 +34,6 @@
 // THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-//
-// Authors: Gabe Black
 
 let {{
 
@@ -75,8 +73,8 @@ let {{
             }
 
         if not regs in (3, 4):
-            raise Exception, "Multiplication instructions with %d " + \
-                             "registers are not implemented"
+            raise Exception("Multiplication instructions with {} ".format(
+                regs) + "registers are not implemented")
 
         if regs == 3:
             base = 'Mult3'
@@ -86,15 +84,14 @@ let {{
         Name = mnem.capitalize()
 
         if unCc:
-            iop = InstObjParams(mnem, Name, base,
-                            {"code" : code,
-                             "predicate_test": pickPredicate(code),
-                             "op_class": "IntMultOp" })
+            iop = ArmInstObjParams(mnem, Name, base,
+                    { "code" : code, "predicate_test": pickPredicate(code),
+                      "op_class": "IntMultOp" })
         if doCc:
-            iopCc = InstObjParams(mnem + "s", Name + "Cc", base,
-                              {"code" : code + ccCode,
-                               "predicate_test": pickPredicate(code + ccCode),
-                               "op_class": "IntMultOp" })
+            iopCc = ArmInstObjParams(mnem + "s", Name + "Cc", base,
+                    { "code" : code + ccCode,
+                      "predicate_test": pickPredicate(code + ccCode),
+                      "op_class": "IntMultOp" })
 
         if regs == 3:
             declare = Mult3Declare

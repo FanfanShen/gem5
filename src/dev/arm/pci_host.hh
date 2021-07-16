@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #ifndef __DEV_ARM_PCI_HOST_HH__
@@ -50,7 +48,7 @@ class GenericArmPciHost
     : public GenericPciHost
 {
   public:
-    GenericArmPciHost(const GenericArmPciHostParams *p);
+    GenericArmPciHost(const GenericArmPciHostParams &p);
     virtual ~GenericArmPciHost() {}
 
   protected:

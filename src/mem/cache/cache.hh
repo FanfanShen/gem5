@@ -36,12 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Erik Hallnor
- *          Dave Greene
- *          Steve Reinhardt
- *          Ron Dreslinski
- *          Andreas Hansson
  */
 
 /**
@@ -161,7 +155,7 @@ class Cache : public BaseCache
 
   public:
     /** Instantiates a basic cache object. */
-    Cache(const CacheParams *p);
+    Cache(const CacheParams &p);
 
     /**
      * Take an MSHR, turn it into a suitable downstream packet, and

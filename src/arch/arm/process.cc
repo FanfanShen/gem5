@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2012, 2018 ARM Limited
+ * Copyright (c) 2010, 2012, 2017-2018 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Stephen Hines
- *          Ali Saidi
  */
 
 #include "arch/arm/process.hh"
@@ -58,47 +55,47 @@
 #include "sim/syscall_return.hh"
 #include "sim/system.hh"
 
-using namespace std;
 using namespace ArmISA;
 
-ArmProcess::ArmProcess(ProcessParams *params, ObjectFile *objFile,
-                       ObjectFile::Arch _arch)
+ArmProcess::ArmProcess(const ProcessParams &params,
+                       ::Loader::ObjectFile *objFile, ::Loader::Arch _arch)
     : Process(params,
-              new EmulationPageTable(params->name, params->pid, PageBytes),
+              new EmulationPageTable(params.name, params.pid, PageBytes),
               objFile),
       arch(_arch)
 {
-    fatal_if(params->useArchPT, "Arch page tables not implemented.");
+    fatal_if(params.useArchPT, "Arch page tables not implemented.");
 }
 
-ArmProcess32::ArmProcess32(ProcessParams *params, ObjectFile *objFile,
-                           ObjectFile::Arch _arch)
+ArmProcess32::ArmProcess32(const ProcessParams &params,
+        ::Loader::ObjectFile *objFile, ::Loader::Arch _arch)
     : ArmProcess(params, objFile, _arch)
 {
-    Addr brk_point = roundUp(objFile->dataBase() + objFile->dataSize() +
-                             objFile->bssSize(), PageBytes);
+    Addr brk_point = roundUp(image.maxAddr(), PageBytes);
     Addr stack_base = 0xbf000000L;
     Addr max_stack_size = 8 * 1024 * 1024;
     Addr next_thread_stack_base = stack_base - max_stack_size;
     Addr mmap_end = 0x40000000L;
 
-    memState = make_shared<MemState>(brk_point, stack_base, max_stack_size,
-                                     next_thread_stack_base, mmap_end);
+    memState = std::make_shared<MemState>(
+            this, brk_point, stack_base, max_stack_size,
+            next_thread_stack_base, mmap_end);
 }
 
-ArmProcess64::ArmProcess64(ProcessParams *params, ObjectFile *objFile,
-                           ObjectFile::Arch _arch)
+ArmProcess64::ArmProcess64(
+        const ProcessParams &params, ::Loader::ObjectFile *objFile,
+        ::Loader::Arch _arch)
     : ArmProcess(params, objFile, _arch)
 {
-    Addr brk_point = roundUp(objFile->dataBase() + objFile->dataSize() +
-                             objFile->bssSize(), PageBytes);
+    Addr brk_point = roundUp(image.maxAddr(), PageBytes);
     Addr stack_base = 0x7fffff0000L;
     Addr max_stack_size = 8 * 1024 * 1024;
     Addr next_thread_stack_base = stack_base - max_stack_size;
     Addr mmap_end = 0x4000000000L;
 
-    memState = make_shared<MemState>(brk_point, stack_base, max_stack_size,
-                                     next_thread_stack_base, mmap_end);
+    memState = std::make_shared<MemState>(
+            this, brk_point, stack_base, max_stack_size,
+            next_thread_stack_base, mmap_end);
 }
 
 void
@@ -106,8 +103,8 @@ ArmProcess32::initState()
 {
     Process::initState();
     argsInit<uint32_t>(PageBytes, INTREG_SP);
-    for (int i = 0; i < contextIds.size(); i++) {
-        ThreadContext * tc = system->getThreadContext(contextIds[i]);
+    for (auto id: contextIds) {
+        ThreadContext *tc = system->threads[id];
         CPACR cpacr = tc->readMiscReg(MISCREG_CPACR);
         // Enable the floating point coprocessors.
         cpacr.cp10 = 0x3;
@@ -125,8 +122,8 @@ ArmProcess64::initState()
 {
     Process::initState();
     argsInit<uint64_t>(PageBytes, INTREG_SP0);
-    for (int i = 0; i < contextIds.size(); i++) {
-        ThreadContext * tc = system->getThreadContext(contextIds[i]);
+    for (auto id: contextIds) {
+        ThreadContext *tc = system->threads[id];
         CPSR cpsr = tc->readMiscReg(MISCREG_CPSR);
         cpsr.mode = MODE_EL0T;
         tc->setMiscReg(MISCREG_CPSR, cpsr);
@@ -134,6 +131,8 @@ ArmProcess64::initState()
         // Enable the floating point coprocessors.
         cpacr.cp10 = 0x3;
         cpacr.cp11 = 0x3;
+        // Enable SVE.
+        cpacr.zen = 0x3;
         tc->setMiscReg(MISCREG_CPACR_EL1, cpacr);
         // Generically enable floating point support.
         FPEXC fpexc = tc->readMiscReg(MISCREG_FPEXC);
@@ -206,7 +205,7 @@ ArmProcess64::armHwcapImpl() const
 
     uint32_t hwcap = 0;
 
-    ThreadContext *tc = system->getThreadContext(contextIds[0]);
+    ThreadContext *tc = system->threads[contextIds[0]];
 
     const AA64PFR0 pf_r0 = tc->readMiscReg(MISCREG_ID_AA64PFR0_EL1);
 
@@ -255,10 +254,9 @@ ArmProcess::argsInit(int pageSize, IntRegIndex spIndex)
 {
     int intSize = sizeof(IntType);
 
-    typedef AuxVector<IntType> auxv_t;
-    std::vector<auxv_t> auxv;
+    std::vector<AuxVector<IntType>> auxv;
 
-    string filename;
+    std::string filename;
     if (argv.size() < 1)
         filename = "";
     else
@@ -267,57 +265,51 @@ ArmProcess::argsInit(int pageSize, IntRegIndex spIndex)
     //We want 16 byte alignment
     uint64_t align = 16;
 
-    // Patch the ld_bias for dynamic executables.
-    updateBias();
-
-    // load object file into target memory
-    objFile->loadSections(initVirtMem);
-
     //Setup the auxilliary vectors. These will already have endian conversion.
     //Auxilliary vectors are loaded only for elf formatted executables.
-    ElfObject * elfObject = dynamic_cast<ElfObject *>(objFile);
+    auto *elfObject = dynamic_cast<::Loader::ElfObject *>(objFile);
     if (elfObject) {
 
-        if (objFile->getOpSys() == ObjectFile::Linux) {
+        if (objFile->getOpSys() == ::Loader::Linux) {
             IntType features = armHwcap<IntType>();
 
             //Bits which describe the system hardware capabilities
             //XXX Figure out what these should be
-            auxv.push_back(auxv_t(M5_AT_HWCAP, features));
+            auxv.emplace_back(M5_AT_HWCAP, features);
             //Frequency at which times() increments
-            auxv.push_back(auxv_t(M5_AT_CLKTCK, 0x64));
+            auxv.emplace_back(M5_AT_CLKTCK, 0x64);
             //Whether to enable "secure mode" in the executable
-            auxv.push_back(auxv_t(M5_AT_SECURE, 0));
+            auxv.emplace_back(M5_AT_SECURE, 0);
             // Pointer to 16 bytes of random data
-            auxv.push_back(auxv_t(M5_AT_RANDOM, 0));
+            auxv.emplace_back(M5_AT_RANDOM, 0);
             //The filename of the program
-            auxv.push_back(auxv_t(M5_AT_EXECFN, 0));
+            auxv.emplace_back(M5_AT_EXECFN, 0);
             //The string "v71" -- ARM v7 architecture
-            auxv.push_back(auxv_t(M5_AT_PLATFORM, 0));
+            auxv.emplace_back(M5_AT_PLATFORM, 0);
         }
 
         //The system page size
-        auxv.push_back(auxv_t(M5_AT_PAGESZ, ArmISA::PageBytes));
-        // For statically linked executables, this is the virtual address of the
-        // program header tables if they appear in the executable image
-        auxv.push_back(auxv_t(M5_AT_PHDR, elfObject->programHeaderTable()));
+        auxv.emplace_back(M5_AT_PAGESZ, ArmISA::PageBytes);
+        // For statically linked executables, this is the virtual address of
+        // the program header tables if they appear in the executable image
+        auxv.emplace_back(M5_AT_PHDR, elfObject->programHeaderTable());
         // This is the size of a program header entry from the elf file.
-        auxv.push_back(auxv_t(M5_AT_PHENT, elfObject->programHeaderSize()));
+        auxv.emplace_back(M5_AT_PHENT, elfObject->programHeaderSize());
         // This is the number of program headers from the original elf file.
-        auxv.push_back(auxv_t(M5_AT_PHNUM, elfObject->programHeaderCount()));
+        auxv.emplace_back(M5_AT_PHNUM, elfObject->programHeaderCount());
         // This is the base address of the ELF interpreter; it should be
         // zero for static executables or contain the base address for
         // dynamic executables.
-        auxv.push_back(auxv_t(M5_AT_BASE, getBias()));
+        auxv.emplace_back(M5_AT_BASE, getBias());
         //XXX Figure out what this should be.
-        auxv.push_back(auxv_t(M5_AT_FLAGS, 0));
+        auxv.emplace_back(M5_AT_FLAGS, 0);
         //The entry point to the program
-        auxv.push_back(auxv_t(M5_AT_ENTRY, objFile->entryPoint()));
+        auxv.emplace_back(M5_AT_ENTRY, objFile->entryPoint());
         //Different user and group IDs
-        auxv.push_back(auxv_t(M5_AT_UID, uid()));
-        auxv.push_back(auxv_t(M5_AT_EUID, euid()));
-        auxv.push_back(auxv_t(M5_AT_GID, gid()));
-        auxv.push_back(auxv_t(M5_AT_EGID, egid()));
+        auxv.emplace_back(M5_AT_UID, uid());
+        auxv.emplace_back(M5_AT_EUID, euid());
+        auxv.emplace_back(M5_AT_GID, gid());
+        auxv.emplace_back(M5_AT_EGID, egid());
     }
 
     //Figure out how big the initial stack nedes to be
@@ -325,7 +317,7 @@ ArmProcess::argsInit(int pageSize, IntRegIndex spIndex)
     // A sentry NULL void pointer at the top of the stack.
     int sentry_size = intSize;
 
-    string platform = "v71";
+    std::string platform = "v71";
     int platform_size = platform.size() + 1;
 
     // Bytes for AT_RANDOM above, we'll just keep them 0
@@ -379,8 +371,8 @@ ArmProcess::argsInit(int pageSize, IntRegIndex spIndex)
     memState->setStackSize(memState->getStackBase() - memState->getStackMin());
 
     // map memory
-    allocateMem(roundDown(memState->getStackMin(), pageSize),
-                          roundUp(memState->getStackSize(), pageSize));
+    memState->mapRegion(roundDown(memState->getStackMin(), pageSize),
+                        roundUp(memState->getStackSize(), pageSize), "stack");
 
     // map out initial stack contents
     IntType sentry_base = memState->getStackBase() - sentry_size;
@@ -410,47 +402,45 @@ ArmProcess::argsInit(int pageSize, IntRegIndex spIndex)
 
     // figure out argc
     IntType argc = argv.size();
-    IntType guestArgc = ArmISA::htog(argc);
+    IntType guestArgc = htole(argc);
 
     //Write out the sentry void *
     IntType sentry_NULL = 0;
-    initVirtMem.writeBlob(sentry_base,
-            (uint8_t*)&sentry_NULL, sentry_size);
+    initVirtMem->writeBlob(sentry_base, &sentry_NULL, sentry_size);
 
     //Fix up the aux vectors which point to other data
     for (int i = auxv.size() - 1; i >= 0; i--) {
-        if (auxv[i].getHostAuxType() == M5_AT_PLATFORM) {
-            auxv[i].setAuxVal(platform_base);
-            initVirtMem.writeString(platform_base, platform.c_str());
-        } else if (auxv[i].getHostAuxType() == M5_AT_EXECFN) {
-            auxv[i].setAuxVal(aux_data_base);
-            initVirtMem.writeString(aux_data_base, filename.c_str());
-        } else if (auxv[i].getHostAuxType() == M5_AT_RANDOM) {
-            auxv[i].setAuxVal(aux_random_base);
+        if (auxv[i].type == M5_AT_PLATFORM) {
+            auxv[i].val = platform_base;
+            initVirtMem->writeString(platform_base, platform.c_str());
+        } else if (auxv[i].type == M5_AT_EXECFN) {
+            auxv[i].val = aux_data_base;
+            initVirtMem->writeString(aux_data_base, filename.c_str());
+        } else if (auxv[i].type == M5_AT_RANDOM) {
+            auxv[i].val = aux_random_base;
             // Just leave the value 0, we don't want randomness
         }
     }
 
     //Copy the aux stuff
-    for (int x = 0; x < auxv.size(); x++) {
-        initVirtMem.writeBlob(auxv_array_base + x * 2 * intSize,
-                              (uint8_t*)&(auxv[x].getAuxType()),
-                              intSize);
-        initVirtMem.writeBlob(auxv_array_base + (x * 2 + 1) * intSize,
-                              (uint8_t*)&(auxv[x].getAuxVal()),
-                              intSize);
+    Addr auxv_array_end = auxv_array_base;
+    for (const auto &aux: auxv) {
+        initVirtMem->write(auxv_array_end, aux, GuestByteOrder);
+        auxv_array_end += sizeof(aux);
     }
-    //Write out the terminating zeroed auxilliary vector
-    const uint64_t zero = 0;
-    initVirtMem.writeBlob(auxv_array_base + 2 * intSize * auxv.size(),
-            (uint8_t*)&zero, 2 * intSize);
+    //Write out the terminating zeroed auxillary vector
+    const AuxVector<IntType> zero(0, 0);
+    initVirtMem->write(auxv_array_end, zero);
+    auxv_array_end += sizeof(zero);
 
-    copyStringArray(envp, envp_array_base, env_data_base, initVirtMem);
-    copyStringArray(argv, argv_array_base, arg_data_base, initVirtMem);
+    copyStringArray(envp, envp_array_base, env_data_base,
+                    ByteOrder::little, *initVirtMem);
+    copyStringArray(argv, argv_array_base, arg_data_base,
+                    ByteOrder::little, *initVirtMem);
 
-    initVirtMem.writeBlob(argc_base, (uint8_t*)&guestArgc, intSize);
+    initVirtMem->writeBlob(argc_base, &guestArgc, intSize);
 
-    ThreadContext *tc = system->getThreadContext(contextIds[0]);
+    ThreadContext *tc = system->threads[contextIds[0]];
     //Set the stack pointer register
     tc->setIntReg(spIndex, memState->getStackMin());
     //A pointer to a function to run when the program exits. We'll set this
@@ -471,101 +461,13 @@ ArmProcess::argsInit(int pageSize, IntRegIndex spIndex)
     }
 
     PCState pc;
-    pc.thumb(arch == ObjectFile::Thumb);
+    pc.thumb(arch == ::Loader::Thumb);
     pc.nextThumb(pc.thumb());
-    pc.aarch64(arch == ObjectFile::Arm64);
+    pc.aarch64(arch == ::Loader::Arm64);
     pc.nextAArch64(pc.aarch64());
     pc.set(getStartPC() & ~mask(1));
     tc->pcState(pc);
 
     //Align the "stackMin" to a page boundary.
     memState->setStackMin(roundDown(memState->getStackMin(), pageSize));
-}
-
-ArmISA::IntReg
-ArmProcess32::getSyscallArg(ThreadContext *tc, int &i)
-{
-    assert(i < 6);
-    return tc->readIntReg(ArgumentReg0 + i++);
-}
-
-ArmISA::IntReg
-ArmProcess64::getSyscallArg(ThreadContext *tc, int &i)
-{
-    assert(i < 8);
-    return tc->readIntReg(ArgumentReg0 + i++);
-}
-
-ArmISA::IntReg
-ArmProcess32::getSyscallArg(ThreadContext *tc, int &i, int width)
-{
-    assert(width == 32 || width == 64);
-    if (width == 32)
-        return getSyscallArg(tc, i);
-
-    // 64 bit arguments are passed starting in an even register
-    if (i % 2 != 0)
-       i++;
-
-    // Registers r0-r6 can be used
-    assert(i < 5);
-    uint64_t val;
-    val = tc->readIntReg(ArgumentReg0 + i++);
-    val |= ((uint64_t)tc->readIntReg(ArgumentReg0 + i++) << 32);
-    return val;
-}
-
-ArmISA::IntReg
-ArmProcess64::getSyscallArg(ThreadContext *tc, int &i, int width)
-{
-    return getSyscallArg(tc, i);
-}
-
-
-void
-ArmProcess32::setSyscallArg(ThreadContext *tc, int i, ArmISA::IntReg val)
-{
-    assert(i < 6);
-    tc->setIntReg(ArgumentReg0 + i, val);
-}
-
-void
-ArmProcess64::setSyscallArg(ThreadContext *tc, int i, ArmISA::IntReg val)
-{
-    assert(i < 8);
-    tc->setIntReg(ArgumentReg0 + i, val);
-}
-
-void
-ArmProcess32::setSyscallReturn(ThreadContext *tc, SyscallReturn sysret)
-{
-
-    if (objFile->getOpSys() == ObjectFile::FreeBSD) {
-        // Decode return value
-        if (sysret.encodedValue() >= 0)
-            // FreeBSD checks the carry bit to determine if syscall is succeeded
-            tc->setCCReg(CCREG_C, 0);
-        else {
-            sysret = -sysret.encodedValue();
-        }
-    }
-
-    tc->setIntReg(ReturnValueReg, sysret.encodedValue());
-}
-
-void
-ArmProcess64::setSyscallReturn(ThreadContext *tc, SyscallReturn sysret)
-{
-
-    if (objFile->getOpSys() == ObjectFile::FreeBSD) {
-        // Decode return value
-        if (sysret.encodedValue() >= 0)
-            // FreeBSD checks the carry bit to determine if syscall is succeeded
-            tc->setCCReg(CCREG_C, 0);
-        else {
-            sysret = -sysret.encodedValue();
-        }
-    }
-
-    tc->setIntReg(ReturnValueReg, sysret.encodedValue());
 }

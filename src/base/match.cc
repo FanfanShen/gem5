@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2019 The Regents of the University of California
  * Copyright (c) 2004-2005 The Regents of The University of Michigan
  * All rights reserved.
  *
@@ -24,40 +25,42 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Nathan Binkert
  */
 
 #include "base/match.hh"
 
 #include "base/str.hh"
 
-using namespace std;
-
 ObjectMatch::ObjectMatch()
 {
 }
 
-ObjectMatch::ObjectMatch(const string &expr)
+ObjectMatch::ObjectMatch(const std::string &expr)
 {
     setExpression(expr);
 }
 
 void
-ObjectMatch::setExpression(const string &expr)
+ObjectMatch::add(const ObjectMatch &other)
+{
+    tokens.insert(tokens.end(), other.tokens.begin(), other.tokens.end());
+}
+
+void
+ObjectMatch::setExpression(const std::string &expr)
 {
     tokens.resize(1);
     tokenize(tokens[0], expr, '.');
 }
 
 void
-ObjectMatch::setExpression(const vector<string> &expr)
+ObjectMatch::setExpression(const std::vector<std::string> &expr)
 {
     if (expr.empty()) {
         tokens.resize(0);
     } else {
         tokens.resize(expr.size());
-        for (vector<string>::size_type i = 0; i < expr.size(); ++i)
+        for (std::vector<std::string>::size_type i = 0; i < expr.size(); ++i)
             tokenize(tokens[i], expr[i], '.');
     }
 }
@@ -67,15 +70,15 @@ ObjectMatch::setExpression(const vector<string> &expr)
  * expression code
  */
 bool
-ObjectMatch::domatch(const string &name) const
+ObjectMatch::domatch(const std::string &name) const
 {
-    vector<string> name_tokens;
+    std::vector<std::string> name_tokens;
     tokenize(name_tokens, name, '.');
     int ntsize = name_tokens.size();
 
     int num_expr = tokens.size();
     for (int i = 0; i < num_expr; ++i) {
-        const vector<string> &token = tokens[i];
+        const std::vector<std::string> &token = tokens[i];
         int jstop = token.size();
 
         bool match = true;
@@ -83,7 +86,7 @@ ObjectMatch::domatch(const string &name) const
             if (j >= ntsize)
                 break;
 
-            const string &var = token[j];
+            const std::string &var = token[j];
             if (var != "*" && var != name_tokens[j]) {
                 match = false;
                 break;
@@ -95,5 +98,18 @@ ObjectMatch::domatch(const string &name) const
     }
 
     return false;
+}
+
+std::vector<std::vector<std::string> >
+ObjectMatch::getExpressions()
+{
+    std::vector<std::vector<std::string> > to_return;
+    for (const auto &expression: tokens) {
+        std::vector<std::string> to_add;
+        to_add.insert(to_add.end(), expression.begin(), expression.end());
+        to_return.push_back(to_add);
+    }
+
+    return to_return;
 }
 

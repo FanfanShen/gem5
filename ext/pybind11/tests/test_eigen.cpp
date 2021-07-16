@@ -11,6 +11,11 @@
 #include "constructor_stats.h"
 #include <pybind11/eigen.h>
 #include <pybind11/stl.h>
+
+#if defined(_MSC_VER)
+#  pragma warning(disable: 4996) // C4996: std::unary_negation is deprecated
+#endif
+
 #include <Eigen/Cholesky>
 
 using MatrixXdR = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
@@ -56,8 +61,9 @@ double get_elem(Eigen::Ref<const Eigen::MatrixXd> m) { return m(2, 1); };
 // reference is referencing rows/columns correctly).
 template <typename MatrixArgType> Eigen::MatrixXd adjust_matrix(MatrixArgType m) {
     Eigen::MatrixXd ret(m);
-    for (int c = 0; c < m.cols(); c++) for (int r = 0; r < m.rows(); r++)
-        ret(r, c) += 10*r + 100*c;
+    for (int c = 0; c < m.cols(); c++)
+        for (int r = 0; r < m.rows(); r++)
+            ret(r, c) += 10*r + 100*c;  // NOLINT(clang-analyzer-core.uninitialized.Assign)
     return ret;
 }
 
@@ -81,8 +87,6 @@ TEST_SUBMODULE(eigen, m) {
     using FourColMatrixR = Eigen::Matrix<float, Eigen::Dynamic, 4>;
     using SparseMatrixR = Eigen::SparseMatrix<float, Eigen::RowMajor>;
     using SparseMatrixC = Eigen::SparseMatrix<float>;
-
-    m.attr("have_eigen") = true;
 
     // various tests
     m.def("double_col", [](const Eigen::VectorXf &x) -> Eigen::VectorXf { return 2.0f * x; });
@@ -119,7 +123,7 @@ TEST_SUBMODULE(eigen, m) {
     // This one accepts a matrix of any stride:
     m.def("add_any", [](py::EigenDRef<Eigen::MatrixXd> x, int r, int c, double v) { x(r,c) += v; });
 
-    // Return mutable references (numpy maps into eigen varibles)
+    // Return mutable references (numpy maps into eigen variables)
     m.def("get_cm_ref", []() { return Eigen::Ref<Eigen::MatrixXd>(get_cm()); });
     m.def("get_rm_ref", []() { return Eigen::Ref<MatrixXdR>(get_rm()); });
     // The same references, but non-mutable (numpy maps into eigen variables, but is !writeable)
@@ -252,7 +256,7 @@ TEST_SUBMODULE(eigen, m) {
     m.def("dense_copy_r", [](const DenseMatrixR &m) -> DenseMatrixR { return m; });
     m.def("dense_copy_c", [](const DenseMatrixC &m) -> DenseMatrixC { return m; });
     // test_sparse, test_sparse_signature
-    m.def("sparse_r", [mat]() -> SparseMatrixR { return Eigen::SparseView<Eigen::MatrixXf>(mat); });
+    m.def("sparse_r", [mat]() -> SparseMatrixR { return Eigen::SparseView<Eigen::MatrixXf>(mat); }); //NOLINT(clang-analyzer-core.uninitialized.UndefReturn)
     m.def("sparse_c", [mat]() -> SparseMatrixC { return Eigen::SparseView<Eigen::MatrixXf>(mat); });
     m.def("sparse_copy_r", [](const SparseMatrixR &m) -> SparseMatrixR { return m; });
     m.def("sparse_copy_c", [](const SparseMatrixC &m) -> SparseMatrixC { return m; });
@@ -269,6 +273,7 @@ TEST_SUBMODULE(eigen, m) {
     m.def("cpp_ref_r", [](py::handle m) { return m.cast<Eigen::Ref<MatrixXdR>>()(1, 0); });
     m.def("cpp_ref_any", [](py::handle m) { return m.cast<py::EigenDRef<Eigen::MatrixXd>>()(1, 0); });
 
+    // [workaround(intel)] ICC 20/21 breaks with py::arg().stuff, using py::arg{}.stuff works.
 
     // test_nocopy_wrapper
     // Test that we can prevent copying into an argument that would normally copy: First a version
@@ -276,17 +281,24 @@ TEST_SUBMODULE(eigen, m) {
     m.def("get_elem", &get_elem);
     // Now this alternative that calls the tells pybind to fail rather than copy:
     m.def("get_elem_nocopy", [](Eigen::Ref<const Eigen::MatrixXd> m) -> double { return get_elem(m); },
-            py::arg().noconvert());
+            py::arg{}.noconvert());
     // Also test a row-major-only no-copy const ref:
     m.def("get_elem_rm_nocopy", [](Eigen::Ref<const Eigen::Matrix<long, -1, -1, Eigen::RowMajor>> &m) -> long { return m(2, 1); },
-            py::arg().noconvert());
+            py::arg{}.noconvert());
 
     // test_issue738
     // Issue #738: 1xN or Nx1 2D matrices were neither accepted nor properly copied with an
     // incompatible stride value on the length-1 dimension--but that should be allowed (without
     // requiring a copy!) because the stride value can be safely ignored on a size-1 dimension.
-    m.def("iss738_f1", &adjust_matrix<const Eigen::Ref<const Eigen::MatrixXd> &>, py::arg().noconvert());
-    m.def("iss738_f2", &adjust_matrix<const Eigen::Ref<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>> &>, py::arg().noconvert());
+    m.def("iss738_f1", &adjust_matrix<const Eigen::Ref<const Eigen::MatrixXd> &>, py::arg{}.noconvert());
+    m.def("iss738_f2", &adjust_matrix<const Eigen::Ref<const Eigen::Matrix<double, -1, -1, Eigen::RowMajor>> &>, py::arg{}.noconvert());
+
+    // test_issue1105
+    // Issue #1105: when converting from a numpy two-dimensional (Nx1) or (1xN) value into a dense
+    // eigen Vector or RowVector, the argument would fail to load because the numpy copy would fail:
+    // numpy won't broadcast a Nx1 into a 1-dimensional vector.
+    m.def("iss1105_col", [](Eigen::VectorXd) { return true; });
+    m.def("iss1105_row", [](Eigen::RowVectorXd) { return true; });
 
     // test_named_arguments
     // Make sure named arguments are working properly:
@@ -307,11 +319,11 @@ TEST_SUBMODULE(eigen, m) {
     // a new array (np.ones(10)) increases the chances that the temp array will be garbage
     // collected and/or that its memory will be overridden with different values.
     m.def("get_elem_direct", [](Eigen::Ref<const Eigen::VectorXd> v) {
-        py::module::import("numpy").attr("ones")(10);
+        py::module_::import("numpy").attr("ones")(10);
         return v(5);
     });
     m.def("get_elem_indirect", [](std::vector<Eigen::Ref<const Eigen::VectorXd>> v) {
-        py::module::import("numpy").attr("ones")(10);
+        py::module_::import("numpy").attr("ones")(10);
         return v[0](5);
     });
 }

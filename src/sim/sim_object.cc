@@ -25,9 +25,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Nathan Binkert
  */
 
 #include "sim/sim_object.hh"
@@ -37,9 +34,6 @@
 #include "base/trace.hh"
 #include "debug/Checkpoint.hh"
 #include "sim/probe/probe.hh"
-
-using namespace std;
-
 
 ////////////////////////////////////////////////////////////////////////
 //
@@ -55,8 +49,10 @@ SimObject::SimObjectList SimObject::simObjectList;
 //
 // SimObject constructor: used to maintain static simObjectList
 //
-SimObject::SimObject(const Params *p)
-    : EventManager(getEventQueue(p->eventq_index)), _params(p)
+SimObject::SimObject(const Params &p)
+    : EventManager(getEventQueue(p.eventq_index)),
+      Stats::Group(nullptr),
+      _params(p)
 {
 #ifdef DEBUG
     doDebugBreak = false;
@@ -98,19 +94,6 @@ SimObject::startup()
 {
 }
 
-//
-// no default statistics, so nothing to do in base implementation
-//
-void
-SimObject::regStats()
-{
-}
-
-void
-SimObject::resetStats()
-{
-}
-
 /**
  * No probe points by default, so do nothing in base.
  */
@@ -131,6 +114,12 @@ ProbeManager *
 SimObject::getProbeManager()
 {
     return probeManager;
+}
+
+Port &
+SimObject::getPort(const std::string &if_name, PortID idx)
+{
+    fatal("%s does not have any port named %s\n", name(), if_name);
 }
 
 //
@@ -156,7 +145,7 @@ SimObject::serializeAll(CheckpointOut &cp)
 // static function: flag which objects should have the debugger break
 //
 void
-SimObject::debugObjectBreak(const string &objs)
+SimObject::debugObjectBreak(const std::string &objs)
 {
     SimObjectList::const_iterator i = simObjectList.begin();
     SimObjectList::const_iterator end = simObjectList.end();
@@ -171,7 +160,7 @@ SimObject::debugObjectBreak(const string &objs)
 void
 debugObjectBreak(const char *objs)
 {
-    SimObject::debugObjectBreak(string(objs));
+    SimObject::debugObjectBreak(std::string(objs));
 }
 #endif
 

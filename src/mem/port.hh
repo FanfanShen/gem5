@@ -36,10 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ron Dreslinski
- *          Andreas Hansson
- *          William Wang
  */
 
 /**
@@ -52,143 +48,80 @@
 
 #include "base/addr_range.hh"
 #include "mem/packet.hh"
+#include "mem/protocol/atomic.hh"
+#include "mem/protocol/functional.hh"
+#include "mem/protocol/timing.hh"
+#include "sim/port.hh"
 
-class MemObject;
-
-/**
- * Ports are used to interface memory objects to each other. A port is
- * either a master or a slave and the connected peer is always of the
- * opposite role. Each port has a name, an owner, and an identifier.
- */
-class Port
-{
-
-  private:
-
-    /** Descriptive name (for DPRINTF output) */
-    std::string portName;
-
-  protected:
-
-    /**
-     * A numeric identifier to distinguish ports in a vector, and set
-     * to InvalidPortID in case this port is not part of a vector.
-     */
-    const PortID id;
-
-    /** A reference to the MemObject that owns this port. */
-    MemObject& owner;
-
-    /**
-     * Abstract base class for ports
-     *
-     * @param _name Port name including the owners name
-     * @param _owner The MemObject that is the structural owner of this port
-     * @param _id A port identifier for vector ports
-     */
-    Port(const std::string& _name, MemObject& _owner, PortID _id);
-
-    /**
-     * Virtual destructor due to inheritance.
-     */
-    virtual ~Port();
-
-  public:
-
-    /** Return port name (for DPRINTF). */
-    const std::string name() const { return portName; }
-
-    /** Get the port id. */
-    PortID getId() const { return id; }
-
-};
+class SimObject;
 
 /** Forward declaration */
-class BaseSlavePort;
-
-/**
- * A BaseMasterPort is a protocol-agnostic master port, responsible
- * only for the structural connection to a slave port. The final
- * master port that inherits from the base class must override the
- * bind member function for the specific slave port class.
- */
-class BaseMasterPort : public Port
-{
-
-  protected:
-
-    BaseSlavePort* _baseSlavePort;
-
-    BaseMasterPort(const std::string& name, MemObject* owner,
-                   PortID id = InvalidPortID);
-    virtual ~BaseMasterPort();
-
-  public:
-
-    virtual void bind(BaseSlavePort& slave_port) = 0;
-    virtual void unbind() = 0;
-    BaseSlavePort& getSlavePort() const;
-    bool isConnected() const;
-
-};
-
-/**
- * A BaseSlavePort is a protocol-agnostic slave port, responsible
- * only for the structural connection to a master port.
- */
-class BaseSlavePort : public Port
-{
-
-  protected:
-
-    BaseMasterPort* _baseMasterPort;
-
-    BaseSlavePort(const std::string& name, MemObject* owner,
-                  PortID id = InvalidPortID);
-    virtual ~BaseSlavePort();
-
-  public:
-
-    BaseMasterPort& getMasterPort() const;
-    bool isConnected() const;
-
-};
-
-/** Forward declaration */
+class MasterPort;
 class SlavePort;
 
+class ResponsePort;
+
 /**
- * A MasterPort is a specialisation of a BaseMasterPort, which
+ * A RequestPort is a specialisation of a Port, which
  * implements the default protocol for the three different level of
  * transport functions. In addition to the basic functionality of
  * sending packets, it also has functions to receive range changes or
  * determine if the port is snooping or not.
+ *
+ * The three protocols are atomic, timing, and functional, each with its own
+ * header file.
  */
-class MasterPort : public BaseMasterPort
+class RequestPort: public Port, public AtomicRequestProtocol,
+    public TimingRequestProtocol, public FunctionalRequestProtocol
 {
-
-    friend class SlavePort;
+    friend class ResponsePort;
 
   private:
+    ResponsePort *_responsePort;
 
-    SlavePort* _slavePort;
+  protected:
+    SimObject &owner;
 
   public:
-
-    MasterPort(const std::string& name, MemObject* owner,
-               PortID id = InvalidPortID);
-    virtual ~MasterPort();
-
-    /**
-     * Bind this master port to a slave port. This also does the
-     * mirror action and binds the slave port to the master port.
-     */
-    void bind(BaseSlavePort& slave_port);
+    RequestPort(const std::string& name, SimObject* _owner,
+               PortID id=InvalidPortID);
+    virtual ~RequestPort();
 
     /**
-     * Unbind this master port and the associated slave port.
+     * Bind this request port to a response port. This also does the
+     * mirror action and binds the response port to the request port.
      */
-    void unbind();
+    void bind(Port &peer) override;
+
+    /**
+     * Unbind this request port and the associated response port.
+     */
+    void unbind() override;
+
+    /**
+     * Determine if this request port is snooping or not. The default
+     * implementation returns false and thus tells the neighbour we
+     * are not snooping. Any request port that wants to receive snoop
+     * requests (e.g. a cache connected to a bus) has to override this
+     * function.
+     *
+     * @return true if the port should be considered a snooper
+     */
+    virtual bool isSnooping() const { return false; }
+
+    /**
+     * Get the address ranges of the connected responder port.
+     */
+    AddrRangeList getAddrRanges() const;
+
+    /**
+     * Inject a PrintReq for the given address to print the state of
+     * that address throughout the memory system.  For debugging.
+     */
+    void printAddr(Addr a);
+
+  public:
+    /* The atomic protocol. */
 
     /**
      * Send an atomic request packet, where the data is moved and the
@@ -202,16 +135,34 @@ class MasterPort : public BaseMasterPort
     Tick sendAtomic(PacketPtr pkt);
 
     /**
+     * Send an atomic request packet like above, but also request a backdoor
+     * to the data being accessed.
+     *
+     * @param pkt Packet to send.
+     * @param backdoor Can be set to a back door pointer by the target to let
+     *        caller have direct access to the requested data.
+     *
+     * @return Estimated latency of access.
+     */
+    Tick sendAtomicBackdoor(PacketPtr pkt, MemBackdoorPtr &backdoor);
+
+  public:
+    /* The functional protocol. */
+
+    /**
      * Send a functional request packet, where the data is instantly
      * updated everywhere in the memory system, without affecting the
      * current state of any block or moving the block.
      *
      * @param pkt Packet to send.
      */
-    void sendFunctional(PacketPtr pkt);
+    void sendFunctional(PacketPtr pkt) const;
+
+  public:
+    /* The timing protocol. */
 
     /**
-     * Attempt to send a timing request to the slave port by calling
+     * Attempt to send a timing request to the responder port by calling
      * its corresponding receive function. If the send does not
      * succeed, as indicated by the return value, then the sender must
      * wait for a recvReqRetry at which point it can re-issue a
@@ -224,7 +175,7 @@ class MasterPort : public BaseMasterPort
     bool sendTimingReq(PacketPtr pkt);
 
     /**
-     * Check if the slave can handle a timing request.
+     * Check if the responder can handle a timing request.
      *
      * If the send cannot be handled at the moment, as indicated by
      * the return value, then the sender will receive a recvReqRetry
@@ -232,12 +183,12 @@ class MasterPort : public BaseMasterPort
      *
      * @param pkt Packet to send.
      *
-     * @return If the send was succesful or not.
+     * @return If the send was successful or not.
      */
     bool tryTiming(PacketPtr pkt) const;
 
     /**
-     * Attempt to send a timing snoop response packet to the slave
+     * Attempt to send a timing snoop response packet to the response
      * port by calling its corresponding receive function. If the send
      * does not succeed, as indicated by the return value, then the
      * sender must wait for a recvRetrySnoop at which point it can
@@ -248,113 +199,116 @@ class MasterPort : public BaseMasterPort
     bool sendTimingSnoopResp(PacketPtr pkt);
 
     /**
-     * Send a retry to the slave port that previously attempted a
-     * sendTimingResp to this master port and failed. Note that this
+     * Send a retry to the response port that previously attempted a
+     * sendTimingResp to this request port and failed. Note that this
      * is virtual so that the "fake" snoop response port in the
      * coherent crossbar can override the behaviour.
      */
     virtual void sendRetryResp();
 
-    /**
-     * Determine if this master port is snooping or not. The default
-     * implementation returns false and thus tells the neighbour we
-     * are not snooping. Any master port that wants to receive snoop
-     * requests (e.g. a cache connected to a bus) has to override this
-     * function.
-     *
-     * @return true if the port should be considered a snooper
-     */
-    virtual bool isSnooping() const { return false; }
-
-    /**
-     * Get the address ranges of the connected slave port.
-     */
-    AddrRangeList getAddrRanges() const;
-
-    /** Inject a PrintReq for the given address to print the state of
-     * that address throughout the memory system.  For debugging.
-     */
-    void printAddr(Addr a);
-
   protected:
-
     /**
-     * Receive an atomic snoop request packet from the slave port.
-     */
-    virtual Tick recvAtomicSnoop(PacketPtr pkt)
-    {
-        panic("%s was not expecting an atomic snoop request\n", name());
-        return 0;
-    }
-
-    /**
-     * Receive a functional snoop request packet from the slave port.
-     */
-    virtual void recvFunctionalSnoop(PacketPtr pkt)
-    {
-        panic("%s was not expecting a functional snoop request\n", name());
-    }
-
-    /**
-     * Receive a timing response from the slave port.
-     */
-    virtual bool recvTimingResp(PacketPtr pkt) = 0;
-
-    /**
-     * Receive a timing snoop request from the slave port.
-     */
-    virtual void recvTimingSnoopReq(PacketPtr pkt)
-    {
-        panic("%s was not expecting a timing snoop request\n", name());
-    }
-
-    /**
-     * Called by the slave port if sendTimingReq was called on this
-     * master port (causing recvTimingReq to be called on the slave
-     * port) and was unsuccesful.
-     */
-    virtual void recvReqRetry() = 0;
-
-    /**
-     * Called by the slave port if sendTimingSnoopResp was called on this
-     * master port (causing recvTimingSnoopResp to be called on the slave
-     * port) and was unsuccesful.
-     */
-    virtual void recvRetrySnoopResp()
-    {
-        panic("%s was not expecting a snoop retry\n", name());
-    }
-
-    /**
-     * Called to receive an address range change from the peer slave
+     * Called to receive an address range change from the peer response
      * port. The default implementation ignores the change and does
      * nothing. Override this function in a derived class if the owner
      * needs to be aware of the address ranges, e.g. in an
      * interconnect component like a bus.
      */
     virtual void recvRangeChange() { }
+
+    /**
+     * Default implementations.
+     */
+    Tick
+    recvAtomicSnoop(PacketPtr pkt) override
+    {
+        panic("%s was not expecting an atomic snoop request\n", name());
+        return 0;
+    }
+
+    void
+    recvFunctionalSnoop(PacketPtr pkt) override
+    {
+        panic("%s was not expecting a functional snoop request\n", name());
+    }
+
+    void
+    recvTimingSnoopReq(PacketPtr pkt) override
+    {
+        panic("%s was not expecting a timing snoop request.\n", name());
+    }
+
+    void
+    recvRetrySnoopResp() override
+    {
+        panic("%s was not expecting a snoop retry.\n", name());
+    }
+};
+
+class [[deprecated]] MasterPort : public RequestPort
+{
+  public:
+    MasterPort(const std::string& name, SimObject* _owner,
+               PortID id=InvalidPortID) : RequestPort(name, _owner, id)
+               {}
 };
 
 /**
- * A SlavePort is a specialisation of a port. In addition to the
- * basic functionality of sending packets to its master peer, it also
- * has functions specific to a slave, e.g. to send range changes
+ * A ResponsePort is a specialization of a port. In addition to the
+ * basic functionality of sending packets to its requestor peer, it also
+ * has functions specific to a responder, e.g. to send range changes
  * and get the address ranges that the port responds to.
+ *
+ * The three protocols are atomic, timing, and functional, each with its own
+ * header file.
  */
-class SlavePort : public BaseSlavePort
+class ResponsePort : public Port, public AtomicResponseProtocol,
+    public TimingResponseProtocol, public FunctionalResponseProtocol
 {
-
-    friend class MasterPort;
+    friend class RequestPort;
 
   private:
+    RequestPort* _requestPort;
 
-    MasterPort* _masterPort;
+    bool defaultBackdoorWarned;
+
+  protected:
+    SimObject& owner;
 
   public:
+    ResponsePort(const std::string& name, SimObject* _owner,
+              PortID id=InvalidPortID);
+    virtual ~ResponsePort();
 
-    SlavePort(const std::string& name, MemObject* owner,
-              PortID id = InvalidPortID);
-    virtual ~SlavePort();
+    /**
+     * Find out if the peer request port is snooping or not.
+     *
+     * @return true if the peer request port is snooping
+     */
+    bool isSnooping() const { return _requestPort->isSnooping(); }
+
+    /**
+     * Called by the owner to send a range change
+     */
+    void sendRangeChange() const { _requestPort->recvRangeChange(); }
+
+    /**
+     * Get a list of the non-overlapping address ranges the owner is
+     * responsible for. All response ports must override this function
+     * and return a populated list with at least one item.
+     *
+     * @return a list of ranges responded to
+     */
+    virtual AddrRangeList getAddrRanges() const = 0;
+
+    /**
+     * We let the request port do the work, so these don't do anything.
+     */
+    void unbind() override {}
+    void bind(Port &peer) override {}
+
+  public:
+    /* The atomic protocol. */
 
     /**
      * Send an atomic snoop request packet, where the data is moved
@@ -365,7 +319,18 @@ class SlavePort : public BaseSlavePort
      *
      * @return Estimated latency of access.
      */
-    Tick sendAtomicSnoop(PacketPtr pkt);
+    Tick
+    sendAtomicSnoop(PacketPtr pkt)
+    {
+        try {
+            return AtomicResponseProtocol::sendSnoop(_requestPort, pkt);
+        } catch (UnboundPortException) {
+            reportUnbound();
+        }
+    }
+
+  public:
+    /* The functional protocol. */
 
     /**
      * Send a functional snoop request packet, where the data is
@@ -374,10 +339,21 @@ class SlavePort : public BaseSlavePort
      *
      * @param pkt Snoop packet to send.
      */
-    void sendFunctionalSnoop(PacketPtr pkt);
+    void
+    sendFunctionalSnoop(PacketPtr pkt) const
+    {
+        try {
+            FunctionalResponseProtocol::sendSnoop(_requestPort, pkt);
+        } catch (UnboundPortException) {
+            reportUnbound();
+        }
+    }
+
+  public:
+    /* The timing protocol. */
 
     /**
-     * Attempt to send a timing response to the master port by calling
+     * Attempt to send a timing response to the request port by calling
      * its corresponding receive function. If the send does not
      * succeed, as indicated by the return value, then the sender must
      * wait for a recvRespRetry at which point it can re-issue a
@@ -385,107 +361,171 @@ class SlavePort : public BaseSlavePort
      *
      * @param pkt Packet to send.
      *
-     * @return If the send was succesful or not.
+     * @return If the send was successful or not.
     */
-    bool sendTimingResp(PacketPtr pkt);
+    bool
+    sendTimingResp(PacketPtr pkt)
+    {
+        try {
+            return TimingResponseProtocol::sendResp(_requestPort, pkt);
+        } catch (UnboundPortException) {
+            reportUnbound();
+        }
+    }
 
     /**
-     * Attempt to send a timing snoop request packet to the master port
+     * Attempt to send a timing snoop request packet to the request port
      * by calling its corresponding receive function. Snoop requests
      * always succeed and hence no return value is needed.
      *
      * @param pkt Packet to send.
      */
-    void sendTimingSnoopReq(PacketPtr pkt);
-
-    /**
-     * Send a retry to the master port that previously attempted a
-     * sendTimingReq to this slave port and failed.
-     */
-    void sendRetryReq();
-
-    /**
-     * Send a retry to the master port that previously attempted a
-     * sendTimingSnoopResp to this slave port and failed.
-     */
-    void sendRetrySnoopResp();
-
-    /**
-     * Find out if the peer master port is snooping or not.
-     *
-     * @return true if the peer master port is snooping
-     */
-    bool isSnooping() const { return _masterPort->isSnooping(); }
-
-    /**
-     * Called by the owner to send a range change
-     */
-    void sendRangeChange() const {
-        if (!_masterPort)
-            fatal("%s cannot sendRangeChange() without master port", name());
-        _masterPort->recvRangeChange();
+    void
+    sendTimingSnoopReq(PacketPtr pkt)
+    {
+        try {
+            TimingResponseProtocol::sendSnoopReq(_requestPort, pkt);
+        } catch (UnboundPortException) {
+            reportUnbound();
+        }
     }
 
     /**
-     * Get a list of the non-overlapping address ranges the owner is
-     * responsible for. All slave ports must override this function
-     * and return a populated list with at least one item.
-     *
-     * @return a list of ranges responded to
+     * Send a retry to the request port that previously attempted a
+     * sendTimingReq to this response port and failed.
      */
-    virtual AddrRangeList getAddrRanges() const = 0;
+    void
+    sendRetryReq()
+    {
+        try {
+            TimingResponseProtocol::sendRetryReq(_requestPort);
+        } catch (UnboundPortException) {
+            reportUnbound();
+        }
+    }
+
+    /**
+     * Send a retry to the request port that previously attempted a
+     * sendTimingSnoopResp to this response port and failed.
+     */
+    void
+    sendRetrySnoopResp()
+    {
+        try {
+            TimingResponseProtocol::sendRetrySnoopResp(_requestPort);
+        } catch (UnboundPortException) {
+            reportUnbound();
+        }
+    }
 
   protected:
-
     /**
-     * Called by the master port to unbind. Should never be called
+     * Called by the request port to unbind. Should never be called
      * directly.
      */
-    void unbind();
+    void responderUnbind();
 
     /**
-     * Called by the master port to bind. Should never be called
+     * Called by the request port to bind. Should never be called
      * directly.
      */
-    void bind(MasterPort& master_port);
+    void responderBind(RequestPort& request_port);
 
     /**
-     * Receive an atomic request packet from the master port.
+     * Default implementations.
      */
-    virtual Tick recvAtomic(PacketPtr pkt) = 0;
+    Tick recvAtomicBackdoor(PacketPtr pkt, MemBackdoorPtr &backdoor) override;
 
-    /**
-     * Receive a functional request packet from the master port.
-     */
-    virtual void recvFunctional(PacketPtr pkt) = 0;
-
-    /**
-     * Receive a timing request from the master port.
-     */
-    virtual bool recvTimingReq(PacketPtr pkt) = 0;
-
-    /**
-     * Availability request from the master port.
-     */
-    virtual bool tryTiming(PacketPtr pkt) {
+    bool
+    tryTiming(PacketPtr pkt) override
+    {
         panic("%s was not expecting a %s\n", name(), __func__);
     }
 
-    /**
-     * Receive a timing snoop response from the master port.
-     */
-    virtual bool recvTimingSnoopResp(PacketPtr pkt)
+    bool
+    recvTimingSnoopResp(PacketPtr pkt) override
     {
         panic("%s was not expecting a timing snoop response\n", name());
     }
-
-    /**
-     * Called by the master port if sendTimingResp was called on this
-     * slave port (causing recvTimingResp to be called on the master
-     * port) and was unsuccesful.
-     */
-    virtual void recvRespRetry() = 0;
-
 };
+
+class [[deprecated]] SlavePort : public ResponsePort
+{
+  public:
+    SlavePort(const std::string& name, SimObject* _owner,
+              PortID id=InvalidPortID) : ResponsePort(name, _owner, id)
+              {}
+};
+
+inline Tick
+RequestPort::sendAtomic(PacketPtr pkt)
+{
+    try {
+        return AtomicRequestProtocol::send(_responsePort, pkt);
+    } catch (UnboundPortException) {
+        reportUnbound();
+    }
+}
+
+inline Tick
+RequestPort::sendAtomicBackdoor(PacketPtr pkt, MemBackdoorPtr &backdoor)
+{
+    try {
+        return AtomicRequestProtocol::sendBackdoor(_responsePort,
+                                                    pkt, backdoor);
+    } catch (UnboundPortException) {
+        reportUnbound();
+    }
+}
+
+inline void
+RequestPort::sendFunctional(PacketPtr pkt) const
+{
+    try {
+        return FunctionalRequestProtocol::send(_responsePort, pkt);
+    } catch (UnboundPortException) {
+        reportUnbound();
+    }
+}
+
+inline bool
+RequestPort::sendTimingReq(PacketPtr pkt)
+{
+    try {
+        return TimingRequestProtocol::sendReq(_responsePort, pkt);
+    } catch (UnboundPortException) {
+        reportUnbound();
+    }
+}
+
+inline bool
+RequestPort::tryTiming(PacketPtr pkt) const
+{
+    try {
+        return TimingRequestProtocol::trySend(_responsePort, pkt);
+    } catch (UnboundPortException) {
+        reportUnbound();
+    }
+}
+
+inline bool
+RequestPort::sendTimingSnoopResp(PacketPtr pkt)
+{
+    try {
+        return TimingRequestProtocol::sendSnoopResp(_responsePort, pkt);
+    } catch (UnboundPortException) {
+        reportUnbound();
+    }
+}
+
+inline void
+RequestPort::sendRetryResp()
+{
+    try {
+        TimingRequestProtocol::sendRetryResp(_responsePort);
+    } catch (UnboundPortException) {
+        reportUnbound();
+    }
+}
 
 #endif //__MEM_PORT_HH__

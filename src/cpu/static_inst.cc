@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Steve Reinhardt
- *          Nathan Binkert
  */
 
 #include "cpu/static_inst.hh"
@@ -58,7 +55,8 @@ class NopStaticInst : public StaticInst
     }
 
     std::string
-    generateDisassembly(Addr pc, const SymbolTable *symtab) const override
+    generateDisassembly(Addr pc,
+            const Loader::SymbolTable *symtab) const override
     {
         return mnemonic;
     }
@@ -70,8 +68,6 @@ class NopStaticInst : public StaticInst
 
 StaticInstPtr StaticInst::nullStaticInstPtr;
 StaticInstPtr StaticInst::nopStaticInstPtr = new NopStaticInst;
-
-using namespace std;
 
 StaticInst::~StaticInst()
 {
@@ -108,7 +104,6 @@ StaticInst::branchTarget(const TheISA::PCState &pc) const
 {
     panic("StaticInst::branchTarget() called on instruction "
           "that is not a PC-relative branch.");
-    M5_DUMMY_RETURN;
 }
 
 TheISA::PCState
@@ -116,14 +111,13 @@ StaticInst::branchTarget(ThreadContext *tc) const
 {
     panic("StaticInst::branchTarget() called on instruction "
           "that is not an indirect branch.");
-    M5_DUMMY_RETURN;
 }
 
-const string &
-StaticInst::disassemble(Addr pc, const SymbolTable *symtab) const
+const std::string &
+StaticInst::disassemble(Addr pc, const Loader::SymbolTable *symtab) const
 {
     if (!cachedDisassembly)
-        cachedDisassembly = new string(generateDisassembly(pc, symtab));
+        cachedDisassembly = new std::string(generateDisassembly(pc, symtab));
 
     return *cachedDisassembly;
 }

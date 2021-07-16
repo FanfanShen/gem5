@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Bardsley
  */
 
 /**
@@ -54,9 +52,10 @@ namespace Minor
 {
 
 /** Currently unused stats class. */
-class MinorStats
+struct MinorStats : public Stats::Group
 {
-  public:
+    MinorStats(BaseCPU *parent);
+
     /** Number of simulated instructions */
     Stats::Scalar numInsts;
 
@@ -79,11 +78,6 @@ class MinorStats
     /** Number of instructions by type (OpClass) */
     Stats::Vector2d committedInstType;
 
-  public:
-    MinorStats();
-
-  public:
-    void regStats(const std::string &name, BaseCPU &baseCpu);
 };
 
 }

@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_X86_ISA_HH__
@@ -34,9 +32,10 @@
 #include <iostream>
 #include <string>
 
+#include "arch/generic/isa.hh"
+#include "arch/x86/registers.hh"
 #include "arch/x86/regs/float.hh"
 #include "arch/x86/regs/misc.hh"
-#include "arch/x86/registers.hh"
 #include "base/types.hh"
 #include "cpu/reg_class.hh"
 #include "sim/sim_object.hh"
@@ -48,27 +47,25 @@ struct X86ISAParams;
 
 namespace X86ISA
 {
-    class ISA : public SimObject
+    class ISA : public BaseISA
     {
       protected:
-        MiscReg regVal[NUM_MISCREGS];
+        RegVal regVal[NUM_MISCREGS];
         void updateHandyM5Reg(Efer efer, CR0 cr0,
-                SegAttr csAttr, SegAttr ssAttr, RFLAGS rflags,
-                ThreadContext *tc);
+                SegAttr csAttr, SegAttr ssAttr, RFLAGS rflags);
 
       public:
-        typedef X86ISAParams Params;
-
         void clear();
 
-        ISA(Params *p);
-        const Params *params() const;
+        using Params = X86ISAParams;
 
-        MiscReg readMiscRegNoEffect(int miscReg) const;
-        MiscReg readMiscReg(int miscReg, ThreadContext *tc);
+        ISA(const Params &p);
 
-        void setMiscRegNoEffect(int miscReg, MiscReg val);
-        void setMiscReg(int miscReg, MiscReg val, ThreadContext *tc);
+        RegVal readMiscRegNoEffect(int miscReg) const;
+        RegVal readMiscReg(int miscReg);
+
+        void setMiscRegNoEffect(int miscReg, RegVal val);
+        void setMiscReg(int miscReg, RegVal val);
 
         RegId
         flattenRegId(const RegId& regId) const
@@ -88,11 +85,7 @@ namespace X86ISA
             return regId;
         }
 
-        int
-        flattenIntIndex(int reg) const
-        {
-            return reg & ~IntFoldBit;
-        }
+        int flattenIntIndex(int reg) const { return reg & ~IntFoldBit; }
 
         int
         flattenFloatIndex(int reg) const
@@ -104,38 +97,28 @@ namespace X86ISA
             return reg;
         }
 
-        int
-        flattenVecIndex(int reg) const
-        {
-            return reg;
-        }
+        int flattenVecIndex(int reg) const { return reg; }
+        int flattenVecElemIndex(int reg) const { return reg; }
+        int flattenVecPredIndex(int reg) const { return reg; }
+        int flattenCCIndex(int reg) const { return reg; }
+        int flattenMiscIndex(int reg) const { return reg; }
 
-        int
-        flattenVecElemIndex(int reg) const
+        bool
+        inUserMode() const override
         {
-            return reg;
-        }
-
-        int
-        flattenCCIndex(int reg) const
-        {
-            return reg;
-        }
-
-        int
-        flattenMiscIndex(int reg) const
-        {
-            return reg;
+            HandyM5Reg m5reg = readMiscRegNoEffect(MISCREG_M5_REG);
+            return m5reg.cpl == 3;
         }
 
         void serialize(CheckpointOut &cp) const override;
         void unserialize(CheckpointIn &cp) override;
 
-        void startup(ThreadContext *tc);
+        void setThreadContext(ThreadContext *_tc) override;
 
-        /// Explicitly import the otherwise hidden startup
-        using SimObject::startup;
+        std::string getVendorString() const;
 
+      private:
+        std::string vendorString;
     };
 }
 

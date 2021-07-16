@@ -24,9 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andrew Schultz
- *          Nathan Binkert
  */
 
 /**
@@ -57,7 +54,7 @@ class Platform : public SimObject
 
   public:
     typedef PlatformParams Params;
-    Platform(const Params *p);
+    Platform(const Params &p);
     virtual ~Platform();
 
     /**

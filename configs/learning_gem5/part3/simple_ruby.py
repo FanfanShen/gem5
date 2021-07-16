@@ -24,25 +24,27 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Jason Lowe-Power
 
 """ This file creates a system with Ruby caches and executes 'threads', a
 simple multi-threaded application with false sharing to stress the Ruby
 protocol.
 
-See Part 3 in the Learning gem5 book: learning.gem5.org/book/part3
+See Part 3 in the Learning gem5 book:
+http://gem5.org/documentation/learning_gem5/part3/MSIintro
 
 IMPORTANT: If you modify this file, it's likely that the Learning gem5 book
            also needs to be updated. For now, email Jason <jason@lowepower.com>
 
 """
-from __future__ import print_function
 
 # import the m5 (gem5) library created when gem5 is built
 import m5
 # import all of the SimObjects
 from m5.objects import *
+
+# Needed for running C++ threads
+m5.util.addToPath('../../')
+from common.FileSystemConfig import config_filesystem
 
 # You can import ruby_caches_MI_example to use the MI_example protocol instead
 # of the MSI protocol
@@ -64,8 +66,9 @@ system.mem_ranges = [AddrRange('512MB')] # Create an address range
 system.cpu = [TimingSimpleCPU() for i in range(2)]
 
 # Create a DDR3 memory controller and connect it to the membus
-system.mem_ctrl = DDR3_1600_8x8()
-system.mem_ctrl.range = system.mem_ranges[0]
+system.mem_ctrl = MemCtrl()
+system.mem_ctrl.dram = DDR3_1600_8x8()
+system.mem_ctrl.dram.range = system.mem_ranges[0]
 
 # create the interrupt controller for the CPU and connect to the membus
 for cpu in system.cpu:
@@ -79,7 +82,10 @@ system.caches.setup(system, system.cpu, [system.mem_ctrl])
 isa = str(m5.defines.buildEnv['TARGET_ISA']).lower()
 
 # Run application and use the compiled ISA to find the binary
-binary = 'tests/test-progs/threads/bin/' + isa + '/linux/threads'
+# grab the specific path to the binary
+thispath = os.path.dirname(os.path.realpath(__file__))
+binary = os.path.join(thispath, '../../../', 'tests/test-progs/threads/bin/',
+                      isa, 'linux/threads')
 
 # Create a process for a simple "multi-threaded" application
 process = Process()
@@ -90,6 +96,11 @@ process.cmd = [binary]
 for cpu in system.cpu:
     cpu.workload = process
     cpu.createThreads()
+
+system.workload = SEWorkload.init_compatible(binary)
+
+# Set up the pseudo file system for the threads function above
+config_filesystem(system)
 
 # set up the root SimObject and start the simulation
 root = Root(full_system = False, system = system)

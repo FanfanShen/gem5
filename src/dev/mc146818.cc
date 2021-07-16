@@ -24,10 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Andrew Schultz
- *          Miguel Serrano
  */
 
 #include "dev/mc146818.hh"
@@ -42,8 +38,6 @@
 #include "base/trace.hh"
 #include "debug/MC146818.hh"
 #include "dev/rtcreg.h"
-
-using namespace std;
 
 static uint8_t
 bcdize(uint8_t val)
@@ -91,8 +85,8 @@ MC146818::setTime(const struct tm time)
     }
 }
 
-MC146818::MC146818(EventManager *em, const string &n, const struct tm time,
-                   bool bcd, Tick frequency)
+MC146818::MC146818(EventManager *em, const std::string &n,
+        const struct tm time, bool bcd, Tick frequency)
     : EventManager(em), _name(n), event(this, frequency), tickEvent(this)
 {
     memset(clock_data, 0, sizeof(clock_data));
@@ -266,7 +260,7 @@ MC146818::tickClock()
 }
 
 void
-MC146818::serialize(const string &base, CheckpointOut &cp) const
+MC146818::serialize(const std::string &base, CheckpointOut &cp) const
 {
     uint8_t regA_serial(stat_regA);
     uint8_t regB_serial(stat_regB);
@@ -286,7 +280,7 @@ MC146818::serialize(const string &base, CheckpointOut &cp) const
 }
 
 void
-MC146818::unserialize(const string &base, CheckpointIn &cp)
+MC146818::unserialize(const std::string &base, CheckpointIn &cp)
 {
     uint8_t tmp8;
 

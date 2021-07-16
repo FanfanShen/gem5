@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Hansson
  */
 
 #include <cassert>
@@ -171,7 +169,7 @@ DRAMSim2Wrapper::canAccept() const
 void
 DRAMSim2Wrapper::enqueue(bool is_write, uint64_t addr)
 {
-    bool success M5_VAR_USED = dramsim->addTransaction(is_write, addr);
+    M5_VAR_USED bool success = dramsim->addTransaction(is_write, addr);
     assert(success);
 }
 

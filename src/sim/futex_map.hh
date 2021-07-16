@@ -24,16 +24,13 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Brandon Potter
- *          Steve Reinhardt
- *          Alexandru Dutu
  */
 
 #ifndef __FUTEX_MAP_HH__
 #define __FUTEX_MAP_HH__
 
 #include <unordered_map>
+#include <unordered_set>
 
 #include <cpu/thread_context.hh>
 
@@ -46,16 +43,9 @@ class FutexKey {
     uint64_t addr;
     uint64_t tgid;
 
-    FutexKey(uint64_t addr_in, uint64_t tgid_in)
-        : addr(addr_in), tgid(tgid_in)
-    {
-    }
+    FutexKey(uint64_t addr_in, uint64_t tgid_in);
 
-    bool
-    operator==(const FutexKey &in) const
-    {
-        return addr == in.addr && tgid == in.tgid;
-    }
+    bool operator==(const FutexKey &in) const;
 };
 
 namespace std {
@@ -67,69 +57,71 @@ namespace std {
     template <>
     struct hash<FutexKey>
     {
-        size_t operator()(const FutexKey& in) const
-        {
-            size_t hash = 65521;
-            for (int i = 0; i < sizeof(uint64_t) / sizeof(size_t); i++) {
-                hash ^= (size_t)(in.addr >> sizeof(size_t) * i) ^
-                        (size_t)(in.tgid >> sizeof(size_t) * i);
-            }
-            return hash;
-        }
+        size_t operator()(const FutexKey& in) const;
     };
 }
 
-typedef std::list<ThreadContext *> ThreadContextList;
+/**
+ * WaiterState defines internal state of a waiter thread. The state
+ * includes a pointer to the thread's context and its associated bitmask.
+ */
+class WaiterState {
+  public:
+    ThreadContext* tc;
+    int bitmask;
+
+    /**
+     * this constructor is used if futex ops with bitset are used
+     */
+    WaiterState(ThreadContext* _tc, int _bitmask);
+
+    /**
+     * return true if the bit-wise AND of the wakeup_bitmask given by
+     * a waking thread and this thread's internal bitmask is non-zero
+     */
+    bool checkMask(int wakeup_bitmask) const;
+};
+
+typedef std::list<WaiterState> WaiterList;
 
 /**
  * FutexMap class holds a map of all futexes used in the system
  */
-class FutexMap : public std::unordered_map<FutexKey, ThreadContextList>
+class FutexMap : public std::unordered_map<FutexKey, WaiterList>
 {
   public:
     /** Inserts a futex into the map with one waiting TC */
-    void
-    suspend(Addr addr, uint64_t tgid, ThreadContext *tc)
-    {
-        FutexKey key(addr, tgid);
-        auto it = find(key);
-
-        if (it == end()) {
-            ThreadContextList tcList {tc};
-            insert({key, tcList});
-        } else {
-            it->second.push_back(tc);
-        }
-
-        /** Suspend the thread context */
-        tc->suspend();
-    }
+    void suspend(Addr addr, uint64_t tgid, ThreadContext *tc);
 
     /** Wakes up at most count waiting threads on a futex */
-    int
-    wakeup(Addr addr, uint64_t tgid, int count)
-    {
-        FutexKey key(addr, tgid);
-        auto it = find(key);
+    int wakeup(Addr addr, uint64_t tgid, int count);
 
-        if (it == end())
-            return 0;
+    void suspend_bitset(Addr addr, uint64_t tgid, ThreadContext *tc,
+                   int bitmask);
 
-        int woken_up = 0;
-        auto &tcList = it->second;
+    int wakeup_bitset(Addr addr, uint64_t tgid, int bitmask);
 
-        while (!tcList.empty() && woken_up < count) {
-            tcList.front()->activate();
-            tcList.pop_front();
-            woken_up++;
-        }
+    /**
+     * This operation wakes a given number (val) of waiters. If there are
+     * more threads waiting than woken, they are removed from the wait
+     * queue of the futex pointed to by addr1 and added to the wait queue
+     * of the futex pointed to by addr2. The number of waiter moved is
+     * capped by count2 (misused timeout parameter).
+     *
+     * The return value is the number of waiters that are woken or
+     * requeued.
+     */
+    int requeue(Addr addr1, uint64_t tgid, int count, int count2, Addr addr2);
 
-        if (tcList.empty())
-            erase(it);
+    /**
+     * Determine if the given thread context is currently waiting on a
+     * futex wait operation on any of the futexes tracked by this FutexMap.
+     */
+    bool is_waiting(ThreadContext *tc);
 
-        return woken_up;
-    }
+  private:
 
+    std::unordered_set<ThreadContext *> waitingTcs;
 };
 
 #endif // __FUTEX_MAP_HH__

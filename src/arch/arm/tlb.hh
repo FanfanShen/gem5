@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010-2013, 2016, 2018 ARM Limited
+ * Copyright (c) 2010-2013, 2016, 2019-2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -36,18 +36,16 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
  */
 
 #ifndef __ARCH_ARM_TLB_HH__
 #define __ARCH_ARM_TLB_HH__
 
 
+#include "arch/arm/faults.hh"
 #include "arch/arm/isa_traits.hh"
 #include "arch/arm/pagetable.hh"
 #include "arch/arm/utility.hh"
-#include "arch/arm/vtophys.hh"
 #include "arch/generic/tlb.hh"
 #include "base/statistics.hh"
 #include "mem/request.hh"
@@ -62,6 +60,15 @@ class TableWalker;
 class Stage2LookUp;
 class Stage2MMU;
 class TLB;
+
+class TLBIALL;
+class TLBIALLEL;
+class TLBIVMALL;
+class TLBIALLN;
+class TLBIMVA;
+class TLBIASID;
+class TLBIMVAA;
+class TLBIIPA;
 
 class TlbTestInterface
 {
@@ -114,11 +121,7 @@ class TLB : public BaseTLB
 
         AllowUnaligned = 0x8,
         // Priv code operating as if it wasn't
-        UserMode = 0x10,
-        // Because zero otherwise looks like a valid setting and may be used
-        // accidentally, this bit must be non-zero to show it was used on
-        // purpose.
-        MustBeOne = 0x40
+        UserMode = 0x10
     };
 
     enum ArmTranslationType {
@@ -166,30 +169,34 @@ class TLB : public BaseTLB
 
     TlbTestInterface *test;
 
-    // Access Stats
-    mutable Stats::Scalar instHits;
-    mutable Stats::Scalar instMisses;
-    mutable Stats::Scalar readHits;
-    mutable Stats::Scalar readMisses;
-    mutable Stats::Scalar writeHits;
-    mutable Stats::Scalar writeMisses;
-    mutable Stats::Scalar inserts;
-    mutable Stats::Scalar flushTlb;
-    mutable Stats::Scalar flushTlbMva;
-    mutable Stats::Scalar flushTlbMvaAsid;
-    mutable Stats::Scalar flushTlbAsid;
-    mutable Stats::Scalar flushedEntries;
-    mutable Stats::Scalar alignFaults;
-    mutable Stats::Scalar prefetchFaults;
-    mutable Stats::Scalar domainFaults;
-    mutable Stats::Scalar permsFaults;
+    struct TlbStats : public Stats::Group
+    {
+        TlbStats(Stats::Group *parent);
+        // Access Stats
+        mutable Stats::Scalar instHits;
+        mutable Stats::Scalar instMisses;
+        mutable Stats::Scalar readHits;
+        mutable Stats::Scalar readMisses;
+        mutable Stats::Scalar writeHits;
+        mutable Stats::Scalar writeMisses;
+        mutable Stats::Scalar inserts;
+        mutable Stats::Scalar flushTlb;
+        mutable Stats::Scalar flushTlbMva;
+        mutable Stats::Scalar flushTlbMvaAsid;
+        mutable Stats::Scalar flushTlbAsid;
+        mutable Stats::Scalar flushedEntries;
+        mutable Stats::Scalar alignFaults;
+        mutable Stats::Scalar prefetchFaults;
+        mutable Stats::Scalar domainFaults;
+        mutable Stats::Scalar permsFaults;
 
-    Stats::Formula readAccesses;
-    Stats::Formula writeAccesses;
-    Stats::Formula instAccesses;
-    Stats::Formula hits;
-    Stats::Formula misses;
-    Stats::Formula accesses;
+        Stats::Formula readAccesses;
+        Stats::Formula writeAccesses;
+        Stats::Formula instAccesses;
+        Stats::Formula hits;
+        Stats::Formula misses;
+        Stats::Formula accesses;
+    } stats;
 
     /** PMU probe for TLB refills */
     ProbePoints::PMUUPtr ppRefills;
@@ -197,8 +204,9 @@ class TLB : public BaseTLB
     int rangeMRU; //On lookup, only move entries ahead when outside rangeMRU
 
   public:
-    TLB(const ArmTLBParams *p);
-    TLB(const Params *p, int _size, TableWalker *_walker);
+    using Params = ArmTLBParams;
+    TLB(const Params &p);
+    TLB(const Params &p, int _size, TableWalker *_walker);
 
     /** Lookup an entry in the TLB
      * @param vpn virtual address
@@ -212,7 +220,8 @@ class TLB : public BaseTLB
      */
     TlbEntry *lookup(Addr vpn, uint16_t asn, uint8_t vmid, bool hyp,
                      bool secure, bool functional,
-                     bool ignore_asn, uint8_t target_el);
+                     bool ignore_asn, ExceptionLevel target_el,
+                     bool in_host);
 
     virtual ~TLB();
 
@@ -225,7 +234,7 @@ class TLB : public BaseTLB
 
     TableWalker *getTableWalker() { return tableWalker; }
 
-    void setMMU(Stage2MMU *m, MasterID master_id);
+    void setMMU(Stage2MMU *m, RequestorID requestor_id);
 
     int getsize() const { return size; }
 
@@ -244,59 +253,51 @@ class TLB : public BaseTLB
     Fault checkPermissions(TlbEntry *te, const RequestPtr &req, Mode mode);
     Fault checkPermissions64(TlbEntry *te, const RequestPtr &req, Mode mode,
                              ThreadContext *tc);
-
-
-    /** Reset the entire TLB
-     * @param secure_lookup if the operation affects the secure world
-     */
-    void flushAllSecurity(bool secure_lookup, uint8_t target_el,
-                          bool ignore_el = false);
-
-    /** Remove all entries in the non secure world, depending on whether they
-     *  were allocated in hyp mode or not
-     * @param hyp if the opperation affects hyp mode
-     */
-    void flushAllNs(bool hyp, uint8_t target_el, bool ignore_el = false);
-
+    bool checkPAN(ThreadContext *tc, uint8_t ap, const RequestPtr &req,
+                  Mode mode);
 
     /** Reset the entire TLB. Used for CPU switching to prevent stale
      * translations after multiple switches
      */
-    void flushAll() override
-    {
-        flushAllSecurity(false, 0, true);
-        flushAllSecurity(true, 0, true);
-    }
+    void flushAll() override;
+
+
+    /** Reset the entire TLB
+     */
+    void flush(const TLBIALL &tlbi_op);
+
+    /** Implementaton of AArch64 TLBI ALLE1(IS), ALLE2(IS), ALLE3(IS)
+     * instructions
+     */
+    void flush(const TLBIALLEL &tlbi_op);
+
+    /** Implementaton of AArch64 TLBI VMALLE1(IS)/VMALLS112E1(IS)
+     * instructions
+     */
+    void flush(const TLBIVMALL &tlbi_op);
+
+    /** Remove all entries in the non secure world, depending on whether they
+     *  were allocated in hyp mode or not
+     */
+    void flush(const TLBIALLN &tlbi_op);
 
     /** Remove any entries that match both a va and asn
-     * @param mva virtual address to flush
-     * @param asn contextid/asn to flush on match
-     * @param secure_lookup if the operation affects the secure world
      */
-    void flushMvaAsid(Addr mva, uint64_t asn, bool secure_lookup,
-                      uint8_t target_el);
+    void flush(const TLBIMVA &tlbi_op);
 
     /** Remove any entries that match the asn
-     * @param asn contextid/asn to flush on match
-     * @param secure_lookup if the operation affects the secure world
      */
-    void flushAsid(uint64_t asn, bool secure_lookup, uint8_t target_el);
+    void flush(const TLBIASID &tlbi_op);
 
     /** Remove all entries that match the va regardless of asn
-     * @param mva address to flush from cache
-     * @param secure_lookup if the operation affects the secure world
-     * @param hyp if the operation affects hyp mode
      */
-    void flushMva(Addr mva, bool secure_lookup, bool hyp, uint8_t target_el);
+    void flush(const TLBIMVAA &tlbi_op);
 
     /**
      * Invalidate all entries in the stage 2 TLB that match the given ipa
      * and the current VMID
-     * @param ipa the address to invalidate
-     * @param secure_lookup if the operation affects the secure world
-     * @param hyp if the operation affects hyp mode
      */
-    void flushIpaVmid(Addr ipa, bool secure_lookup, bool hyp, uint8_t target_el);
+    void flush(const TLBIIPA &tlbi_op);
 
     Fault trickBoxCheck(const RequestPtr &req, Mode mode,
                         TlbEntry::DomainType domain);
@@ -351,6 +352,12 @@ class TLB : public BaseTLB
         return _attr;
     }
 
+    Fault translateMmuOff(ThreadContext *tc, const RequestPtr &req, Mode mode,
+        TLB::ArmTranslationType tranType, Addr vaddr, bool long_desc_format);
+    Fault translateMmuOn(ThreadContext *tc, const RequestPtr &req, Mode mode,
+        Translation *translation, bool &delay, bool timing, bool functional,
+        Addr vaddr, ArmFault::TranMethod tranMethod);
+
     Fault translateFs(const RequestPtr &req, ThreadContext *tc, Mode mode,
             Translation *translation, bool &delay,
             bool timing, ArmTranslationType tranType, bool functional = false);
@@ -383,25 +390,19 @@ class TLB : public BaseTLB
 
     void drainResume() override;
 
-    // Checkpointing
-    void serialize(CheckpointOut &cp) const override;
-    void unserialize(CheckpointIn &cp) override;
-
-    void regStats() override;
-
     void regProbePoints() override;
 
     /**
-     * Get the table walker master port. This is used for migrating
+     * Get the table walker port. This is used for migrating
      * port connections during a CPU takeOverFrom() call. For
      * architectures that do not have a table walker, NULL is
      * returned, hence the use of a pointer rather than a
      * reference. For ARM this method will always return a valid port
      * pointer.
      *
-     * @return A pointer to the walker master port
+     * @return A pointer to the walker request port
      */
-    BaseMasterPort* getMasterPort() override;
+    Port *getTableWalkerPort() override;
 
     // Caching misc register values here.
     // Writing to misc registers needs to invalidate them.
@@ -431,6 +432,7 @@ protected:
     bool haveLPAE;
     bool haveVirtualization;
     bool haveLargeAsid64;
+    uint8_t physAddrRange;
 
     AddrRange m5opRange;
 
@@ -438,25 +440,19 @@ protected:
                        ArmTranslationType tranType = NormalTran);
 
 public:
-    const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
-    inline void invalidateMiscReg() { miscRegValid = false; }
+    void invalidateMiscReg() { miscRegValid = false; }
 
 private:
     /** Remove any entries that match both a va and asn
      * @param mva virtual address to flush
      * @param asn contextid/asn to flush on match
      * @param secure_lookup if the operation affects the secure world
-     * @param hyp if the operation affects hyp mode
      * @param ignore_asn if the flush should ignore the asn
+     * @param in_host if hcr.e2h == 1 and hcr.tge == 1 for VHE.
      */
     void _flushMva(Addr mva, uint64_t asn, bool secure_lookup,
-                   bool hyp, bool ignore_asn, uint8_t target_el);
-
-    bool checkELMatch(uint8_t target_el, uint8_t tentry_el, bool ignore_el);
+                   bool ignore_asn, ExceptionLevel target_el,
+                   bool in_host);
 
   public: /* Testing */
     Fault testTranslation(const RequestPtr &req, Mode mode,
@@ -465,24 +461,6 @@ private:
                    TlbEntry::DomainType domain,
                    LookupLevel lookup_level);
 };
-
-template<typename T>
-TLB *
-getITBPtr(T *tc)
-{
-    auto tlb = static_cast<TLB *>(tc->getITBPtr());
-    assert(tlb);
-    return tlb;
-}
-
-template<typename T>
-TLB *
-getDTBPtr(T *tc)
-{
-    auto tlb = static_cast<TLB *>(tc->getDTBPtr());
-    assert(tlb);
-    return tlb;
-}
 
 } // namespace ArmISA
 

@@ -1,4 +1,4 @@
-#! /usr/bin/env python2
+#! /usr/bin/env python3
 
 # Copyright (c) 2011 ARM Limited
 # All rights reserved
@@ -34,8 +34,6 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Giacomo Gabrielli
 
 # Pipeline activity viewer for the O3 CPU model.
 
@@ -360,14 +358,14 @@ def main():
         parser.error('invalid range')
         sys.exit(1)
     # Process trace
-    print 'Processing trace... ',
+    print('Processing trace... ', end=' ')
     with open(args[0], 'r') as trace:
         with open(options.outfile, 'w') as out:
             process_trace(trace, out, options.cycle_time, options.width,
                           options.color, options.timestamps,
                           options.only_committed, options.store_completions,
                           *(tick_range + inst_range))
-    print 'done!'
+    print('done!')
 
 
 if __name__ == '__main__':

@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __ARCH_X86_BIOS_E820_HH__
@@ -60,8 +58,8 @@ namespace X86ISA
 
       public:
         typedef X86E820EntryParams Params;
-        E820Entry(Params *p) :
-            SimObject(p), addr(p->addr), size(p->size), type(p->range_type)
+        E820Entry(const Params &p) :
+            SimObject(p), addr(p.addr), size(p.size), type(p.range_type)
         {}
     };
 
@@ -72,7 +70,7 @@ namespace X86ISA
 
       public:
         typedef X86E820TableParams Params;
-        E820Table(Params *p) : SimObject(p), entries(p->entries)
+        E820Table(const Params &p) : SimObject(p), entries(p.entries)
         {}
 
         void writeTo(PortProxy& proxy, Addr countAddr, Addr addr);

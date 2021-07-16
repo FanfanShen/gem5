@@ -36,9 +36,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Ali Saidi
- *          Andreas Sandberg
  */
 
 
@@ -58,7 +55,7 @@ struct Pl011Params;
 class Pl011 : public Uart, public AmbaDevice
 {
   public:
-    Pl011(const Pl011Params *p);
+    Pl011(const Pl011Params &p);
 
     void serialize(CheckpointOut &cp) const override;
     void unserialize(CheckpointIn &cp) override;
@@ -135,6 +132,7 @@ class Pl011 : public Uart, public AmbaDevice
     static const int UART_RIS  = 0x03C;
     static const int UART_MIS  = 0x040;
     static const int UART_ICR  = 0x044;
+    static const int UART_DMACR = 0x048;
 
     static const uint16_t UART_RIINTR = 1 << 0;
     static const uint16_t UART_CTSINTR = 1 << 1;
@@ -173,14 +171,10 @@ class Pl011 : public Uart, public AmbaDevice
     uint16_t rawInt;
 
   protected: // Configuration
-    /** Gic to use for interrupting */
-    BaseGic * const gic;
-
     /** Should the simulation end on an EOT */
     const bool endOnEOT;
 
-    /** Interrupt number to generate */
-    const int intNum;
+    ArmInterruptPin* const interrupt;
 
     /** Delay before interrupting */
     const Tick intDelay;

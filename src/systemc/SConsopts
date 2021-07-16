@@ -22,13 +22,23 @@
 # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#
-# Authors: Gabe Black
 
 Import('*')
 
+from gem5_scons import warning
+
+def use_systemc_check(env, warn=False):
+    if env['PLATFORM'] == 'darwin':
+        if warn:
+            warning('Warning: Systemc may not work on Mac OS.')
+        return False
+    return True
+
+main.AddMethod(use_systemc_check, 'UseSystemcCheck')
+
 sticky_vars.AddVariables(
-    BoolVariable('USE_SYSTEMC', 'Enable SystemC API support', True)
+    BoolVariable('USE_SYSTEMC', 'Enable SystemC API support',
+                 main.UseSystemcCheck())
     )
 
 export_vars.append('USE_SYSTEMC')

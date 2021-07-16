@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Gabe Black
  */
 
 #ifndef __DEV_X86_SOUTH_BRIDGE_HH__
@@ -57,14 +55,8 @@ class SouthBridge : public SimObject
     X86ISA::I82094AA * ioApic;
 
   public:
-    typedef SouthBridgeParams Params;
-    SouthBridge(const Params *p);
-
-    const Params *
-    params() const
-    {
-        return dynamic_cast<const Params *>(_params);
-    }
+    using Params = SouthBridgeParams;
+    SouthBridge(const Params &p);
 };
 
 #endif //__DEV_X86_SOUTH_BRIDGE_HH__

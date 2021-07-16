@@ -24,8 +24,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Daniel Carvalho
  */
 
 /**
@@ -36,15 +34,19 @@
 #ifndef __MEM_CACHE_TAGS_SECTOR_TAGS_HH__
 #define __MEM_CACHE_TAGS_SECTOR_TAGS_HH__
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
+#include "base/statistics.hh"
 #include "mem/cache/tags/base.hh"
 #include "mem/cache/tags/sector_blk.hh"
+#include "mem/packet.hh"
 #include "params/SectorTags.hh"
 
-class BaseCache;
-class BaseReplacementPolicy;
+namespace ReplacementPolicy {
+    class Base;
+}
 class ReplaceableEntry;
 
 /**
@@ -57,6 +59,12 @@ class ReplaceableEntry;
  */
 class SectorTags : public BaseTags
 {
+  private:
+    /** The cache blocks. */
+    std::vector<SectorSubBlk> blks;
+    /** The cache sector blocks. */
+    std::vector<SectorBlk> secBlks;
+
   protected:
     /** The allocatable associativity of the cache (alloc mask). */
     unsigned allocAssoc;
@@ -65,18 +73,13 @@ class SectorTags : public BaseTags
     const bool sequentialAccess;
 
     /** Replacement policy */
-    BaseReplacementPolicy *replacementPolicy;
+    ReplacementPolicy::Base *replacementPolicy;
 
     /** Number of data blocks per sector. */
     const unsigned numBlocksPerSector;
 
     /** The number of sectors in the cache. */
     const unsigned numSectors;
-
-    /** The cache blocks. */
-    std::vector<SectorSubBlk> blks;
-    /** The cache sector blocks. */
-    std::vector<SectorBlk> secBlks;
 
     // Organization of an address:
     // Tag | Placement Location | Sector Offset # | Offset #
@@ -86,6 +89,18 @@ class SectorTags : public BaseTags
     /** Mask out all bits that aren't part of the sector tag. */
     const unsigned sectorMask;
 
+    struct SectorTagsStats : public Stats::Group
+    {
+        const SectorTags& tags;
+
+        SectorTagsStats(BaseTagStats &base_group, SectorTags& _tags);
+
+        void regStats() override;
+
+        /** Number of sub-blocks evicted due to a replacement. */
+        Stats::Vector evictionsReplacement;
+    } sectorStats;
+
   public:
     /** Convenience typedef. */
      typedef SectorTagsParams Params;
@@ -93,7 +108,7 @@ class SectorTags : public BaseTags
     /**
      * Construct and initialize this tag store.
      */
-    SectorTags(const Params *p);
+    SectorTags(const Params &p);
 
     /**
      * Destructor.
@@ -129,15 +144,12 @@ class SectorTags : public BaseTags
     /**
      * Insert the new block into the cache and update replacement data.
      *
-     * @param addr Address of the block.
-     * @param is_secure Whether the block is in secure space or not.
-     * @param src_master_ID The source requestor ID.
-     * @param task_ID The new task ID.
+     * @param pkt Packet holding the address to update
      * @param blk The block to update.
      */
-    void insertBlock(const Addr addr, const bool is_secure,
-                     const int src_master_ID, const uint32_t task_ID,
-                     CacheBlk *blk) override;
+    void insertBlock(const PacketPtr pkt, CacheBlk *blk) override;
+
+    void moveBlock(CacheBlk *src_blk, CacheBlk *dest_blk) override;
 
     /**
      * Finds the given address in the cache, do not update replacement data.
@@ -154,11 +166,13 @@ class SectorTags : public BaseTags
      *
      * @param addr Address to find a victim for.
      * @param is_secure True if the target memory space is secure.
+     * @param size Size, in bits, of new block to allocate.
      * @param evict_blks Cache blocks to be evicted.
      * @return Cache block to be replaced.
      */
     CacheBlk* findVictim(Addr addr, const bool is_secure,
-                         std::vector<CacheBlk*>& evict_blks) const override;
+                         const std::size_t size,
+                         std::vector<CacheBlk*>& evict_blks) override;
 
     /**
      * Calculate a block's offset in a sector from the address.

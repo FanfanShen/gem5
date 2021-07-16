@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012 ARM Limited
+ * Copyright (c) 2012, 2020 ARM Limited
  * All rights reserved
  *
  * The license below extends only to copyright in the software and shall
@@ -33,8 +33,6 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Authors: Andreas Sandberg
  */
 
 #include "arch/arm/kvm/arm_cpu.hh"
@@ -45,7 +43,8 @@
 #include <cerrno>
 #include <memory>
 
-#include "arch/registers.hh"
+#include "arch/arm/interrupts.hh"
+#include "arch/arm/registers.hh"
 #include "cpu/kvm/base.hh"
 #include "debug/Kvm.hh"
 #include "debug/KvmContext.hh"
@@ -158,6 +157,8 @@ static uint64_t invariant_reg_vector[] = {
     REG_CP32(15, 0, 0, 2, 3), // ID_ISAR3
     REG_CP32(15, 0, 0, 2, 4), // ID_ISAR4
     REG_CP32(15, 0, 0, 2, 5), // ID_ISAR5
+    REG_CP32(15, 0, 0, 2, 6), // ID_MMFR4
+    REG_CP32(15, 0, 0, 2, 7), // ID_ISAR6
 
     REG_CP32(15, 0, 1, 0, 0), // CSSIDR
     REG_CP32(15, 0, 1, 0, 1), // CLIDR
@@ -242,7 +243,7 @@ ArmKvmCPU::KvmCoreMiscRegInfo ArmKvmCPU::kvmCoreMiscRegs[] = {
     { 0, NUM_MISCREGS }
 };
 
-ArmKvmCPU::ArmKvmCPU(ArmKvmCPUParams *params)
+ArmKvmCPU::ArmKvmCPU(const ArmKvmCPUParams &params)
     : BaseKvmCPU(params),
       irqAsserted(false), fiqAsserted(false)
 {
@@ -270,8 +271,9 @@ ArmKvmCPU::startup()
 Tick
 ArmKvmCPU::kvmRun(Tick ticks)
 {
-    bool simFIQ(interrupts[0]->checkRaw(INT_FIQ));
-    bool simIRQ(interrupts[0]->checkRaw(INT_IRQ));
+    auto interrupt = static_cast<ArmISA::Interrupts *>(interrupts[0]);
+    const bool simFIQ(interrupt->checkRaw(INT_FIQ));
+    const bool simIRQ(interrupt->checkRaw(INT_IRQ));
 
     if (fiqAsserted != simFIQ) {
         fiqAsserted = simFIQ;
@@ -310,26 +312,6 @@ ArmKvmCPU::updateThreadContext()
 
     updateTCStateCore();
     updateTCStateMisc();
-}
-
-Tick
-ArmKvmCPU::onKvmExitHypercall()
-{
-    ThreadContext *tc(getContext(0));
-    const uint32_t reg_ip(tc->readIntRegFlat(INTREG_R12));
-    const uint8_t func((reg_ip >> 8) & 0xFF);
-    const uint8_t subfunc(reg_ip & 0xFF);
-
-    DPRINTF(Kvm, "KVM Hypercall: 0x%x/0x%x\n", func, subfunc);
-    const uint64_t ret(PseudoInst::pseudoInst(getContext(0), func, subfunc));
-
-    // Just set the return value using the KVM API instead of messing
-    // with the context. We could have used the context, but that
-    // would have required us to request a full context sync.
-    setOneReg(REG_CORE32(usr_regs.ARM_r0), ret & 0xFFFFFFFF);
-    setOneReg(REG_CORE32(usr_regs.ARM_r1), (ret >> 32) & 0xFFFFFFFF);
-
-    return 0;
 }
 
 const ArmKvmCPU::RegIndexVector &
@@ -697,8 +679,8 @@ ArmKvmCPU::updateKvmStateVFP(uint64_t id, bool show_warnings)
         const unsigned idx_hi(idx_base + 1);
         const unsigned idx_lo(idx_base + 0);
         uint64_t value(
-            ((uint64_t)tc->readFloatRegBitsFlat(idx_hi) << 32) |
-            tc->readFloatRegBitsFlat(idx_lo));
+            ((uint64_t)tc->readFloatRegFlat(idx_hi) << 32) |
+            tc->readFloatRegFlat(idx_lo));
 
         setOneReg(id, value);
     } else if (REG_IS_VFP_CTRL(id)) {
@@ -839,8 +821,8 @@ ArmKvmCPU::updateTCStateVFP(uint64_t id, bool show_warnings)
         const unsigned idx_lo(idx_base + 0);
         uint64_t value(getOneRegU64(id));
 
-        tc->setFloatRegBitsFlat(idx_hi, (value >> 32) & 0xFFFFFFFF);
-        tc->setFloatRegBitsFlat(idx_lo, value & 0xFFFFFFFF);
+        tc->setFloatRegFlat(idx_hi, (value >> 32) & 0xFFFFFFFF);
+        tc->setFloatRegFlat(idx_lo, value & 0xFFFFFFFF);
     } else if (REG_IS_VFP_CTRL(id)) {
         MiscRegIndex idx(decodeVFPCtrlReg(id));
         if (idx == NUM_MISCREGS) {
@@ -860,10 +842,4 @@ ArmKvmCPU::updateTCStateVFP(uint64_t id, bool show_warnings)
         if (show_warnings)
             warn("Unhandled VFP register: 0x%x\n", id);
     }
-}
-
-ArmKvmCPU *
-ArmKvmCPUParams::create()
-{
-    return new ArmKvmCPU(this);
 }
